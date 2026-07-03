@@ -1,0 +1,104 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: acme_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Step 2 adds init.sql here; Postgres auto-runs every .sql/.sh file in
+      # this directory on first boot (only when the data volume is empty).
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: acme_redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    # Pinned for reproducibility. Re-verify this is still a sensible current
+    # stable version in Step 3, when we configure the realm import and the
+    # hostname/issuer settings (that step requires checking current docs).
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: acme_keycloak
+    restart: unless-stopped
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HEALTH_ENABLED: "true"
+    # Step 3 switches this to `start-dev --import-realm` once
+    # keycloak/realm-export.json exists and is mounted in. Passing
+    # --import-realm now (before that file exists) would crash the container.
+    command: start-dev
+    ports:
+      - "8080:8080"
+    healthcheck:
+      # The Keycloak image has bash but not curl/wget, so health is checked by
+      # opening a raw TCP connection to the management health endpoint
+      # (port 9000, enabled via KC_HEALTH_ENABLED) and reading the HTTP status
+      # line. This is the healthcheck pattern documented by the Keycloak
+      # project itself for docker-compose setups.
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/127.0.0.1/9000; echo -e 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3; cat <&3 | grep -q '200 OK'",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  mcp-server:
+    build: ./mcp_server
+    container_name: acme_mcp_server
+    restart: unless-stopped
+    ports:
+      - "${MCP_SERVER_PORT:-8001}:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: ./app
+    container_name: acme_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      mcp-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

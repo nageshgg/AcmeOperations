@@ -1,0 +1,4 @@
+# Placeholder so this directory is tracked by git before init.sql exists.
+# In Step 2, init.sql (and any seed data scripts) go here. Postgres's official
+# image auto-runs every .sql/.sh file in /docker-entrypoint-initdb.d on first
+# container start (i.e. only when the data volume is empty).

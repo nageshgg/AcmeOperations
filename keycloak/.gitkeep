@@ -1,0 +1,3 @@
+# Placeholder so this directory is tracked by git before realm-export.json exists.
+# In Step 3, realm-export.json goes here and is mounted into the Keycloak
+# container so the realm auto-imports via --import-realm on startup.
