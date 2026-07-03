@@ -208,3 +208,348 @@ own default-role/audience machinery that our own FastAPI validation never
 touches). "I verified the API" and "I verified the product" are different
 claims — this is exactly the gap a human clicking through the actual UI is
 positioned to catch that an API-level test suite is not.
+
+---
+
+## Step 4 — Four tools + Gemini agent loop with RBAC at the tool layer
+
+**What was delegated:**
+Claude Code was asked to implement the four required tools
+(`get_customer_profile`, `get_open_issues_for_customer`,
+`summarize_issue_history`, `create_next_action`) against the Step 2 schema,
+and a real agentic tool-calling loop using Google's Gemini API (switched
+from Anthropic earlier in this project, per your explicit direction) —
+with RBAC enforced per tool call based on the caller's verified Keycloak
+role, not by trusting the model's own behavior.
+
+**A deliberate research step before writing any agent code:**
+Gemini's Python SDK has moved to a new "Interactions API" that I was not
+confident about from training data alone (my last confirmed knowledge was
+of the older `generate_content`-based function calling). Two web
+documentation lookups gave inconsistent detail on how to submit a function
+result back to the model. Rather than pick one and hope, I installed the
+actual SDK in an isolated scratch environment, read its generated model
+classes directly to get the real field names, and confirmed the full
+round-trip against the live Gemini API with a throwaway test script before
+writing any of `app/agent.py`. Full detail in
+[TROUBLESHOOTING_LOG.md](./TROUBLESHOOTING_LOG.md#step-4--verifying-the-gemini-interactions-api-shape-before-trusting-it).
+This is a direct example of "verify before trusting a stale or uncertain
+API surface" — the same principle used for the Keycloak version pin in
+Step 1, applied here because the LLM provider is the part of this project
+furthest from a stable, well-documented-in-training-data API given how
+recently it changed.
+
+**How this was validated — the RBAC-at-the-tool-layer requirement
+specifically:**
+This is the part of the brief most likely to be probed by an assessor, so
+it got the most scrutiny. Ran real conversations through `/chat` for all
+three roles and inspected both the final reply *and* the structured
+`tool_calls` trace (not just the reply text, which could look plausible
+while the underlying tool call silently failed or was skipped):
+- `sales_user` asking to both summarize an issue *and* create a next
+  action: the summarization tool call succeeded, the create-next-action
+  tool call was rejected with an explicit RBAC error
+  (`"Access denied: your role(s) [...sales_user...] do not include any of
+  the roles required..."`), and the model's final reply correctly told the
+  user it couldn't record the action rather than pretending it had.
+- `support_user` making the identical request: both tool calls succeeded,
+  and the resulting row was confirmed via a direct `psql` query against
+  `next_actions` — with `created_by` correctly set to `support_user` (taken
+  from the verified JWT identity, never from anything the model itself
+  supplied as an argument, so the model has no path to forge attribution).
+- `admin` asking for a customer profile: confirmed the returned data
+  (account tier, contact) matches the Step 2 seed data exactly.
+
+**Decisions made during this step (recorded for traceability):**
+- `summarize_issue_history` deliberately does *not* generate the summary
+  itself — it returns the issue plus its full raw update history as
+  structured data, and the model produces the actual prose synthesis. This
+  keeps the tool as a pure data-retrieval boundary (auditable, testable,
+  swappable) and the reasoning/synthesis where it belongs, with the LLM.
+- `create_next_action` is the only tool withheld from `sales_user` among
+  the four required tools, since it's the only one that writes — matching
+  the brief's "sales_user: read-only" / "support_user: read and update"
+  language using the minimum tool surface specified, rather than inventing
+  a fifth tool to more finely distinguish `support_user` from `admin`.
+
+**What should NOT be trusted to AI tools without human oversight:**
+- The RBAC test above is only as good as the scenarios actually tried. I
+  tested "role X attempts the one write-capable tool" and "role X attempts
+  a read tool," but did not exhaustively test every tool against every
+  role, nor adversarial phrasings designed to trick the model into
+  attempting the restricted action indirectly (e.g., asking it to "update
+  the database directly" or role-play framings). The server-side RBAC
+  check does not depend on the model behaving well or being tricked — it
+  rejects unauthorized tool calls unconditionally regardless of how the
+  model was persuaded to attempt one — but a human reviewer should still
+  probe adversarial phrasing before treating RBAC as fully proven, rather
+  than accepting a handful of straightforward test cases as sufficient
+  coverage for an access-control claim.
+- Tool descriptions and the system instruction were written to *guide* the
+  model's behavior (e.g., "don't guess or fabricate data," "tell the user
+  which role is required"), but nothing stops a sufficiently unusual
+  request from getting a plausible-sounding wrong answer that isn't
+  grounded in an actual tool call. The eval suite in Step 8 needs to
+  specifically check "responses grounded in database results" as its own
+  criterion, separate from "did the right tool get called" — those are
+  different failure modes and both matter.
+
+---
+
+## Step 5 — Custom MCP server (own container) + agent consumes tools via MCP
+
+**What was delegated:**
+Claude Code was asked to move the four tools from Step 4's in-process
+Python calls to a real Model Context Protocol server running as its own
+container, with the FastAPI app becoming an MCP *client* that discovers
+tool schemas at runtime (not hardcoded) and dispatches calls over the
+network via the MCP protocol.
+
+**Another deliberate research step, same discipline as Step 4:**
+The Python MCP SDK is a second external, evolving API surface this project
+depends on. Rather than write `mcp_server/server.py` from memory, the
+actual `mcp` package was installed in a scratch venv and its `FastMCP`
+class inspected directly (constructor signature, `run()`'s transport
+options, a live two-file test of the full list-tools/call-tool round trip)
+before any real code was written. Detail in
+[TROUBLESHOOTING_LOG.md](./TROUBLESHOOTING_LOG.md#step-5--same-verify-before-building-approach-for-the-mcp-sdk).
+
+**A real bug found by testing, not by review:**
+A Gemini free-tier rate limit (exhausted by this session's own heavy
+testing volume across Steps 4 and 5) crashed a `/chat` request with an
+opaque 500 -- but only *after* the underlying tool call (a database write)
+had already succeeded. The bug wasn't the rate limit itself; it was that
+`run_agent` had no error handling around the Gemini API calls, so a
+provider-side failure on the *second* call in a tool-calling round trip
+destroyed the response entirely, hiding that real work had already been
+done. This is exactly the kind of failure mode that a quick manual test
+("does /chat work") would miss, because it only surfaces under sustained
+load or exhausted quota, not on a single clean call. Fixed by catching the
+SDK's public `APIError` and returning a normal, well-formed response that
+surfaces what tool calls succeeded and a plain explanation of what failed,
+rather than an opaque crash. Also switched the default model from
+`gemini-3.5-flash` to `gemini-2.5-flash`, since the newer model's free-tier
+quota proved too fragile for a project that still has to survive an eval
+suite and a grader's own manual testing. Full root-cause detail in
+[TROUBLESHOOTING_LOG.md](./TROUBLESHOOTING_LOG.md#step-5--gemini-free-tier-rate-limit-crashed-a-request-mid-flight-real-bug-not-research).
+
+**How the MCP separation was validated (not just asserted):**
+- Confirmed the MCP server's *raw* advertised schema for `create_next_action`
+  includes `created_by` as a required parameter (it has to -- the tool
+  genuinely needs it), then separately confirmed `app/mcp_client.py`'s
+  `get_tool_declarations()` strips it out before anything is shown to
+  Gemini -- these are two different claims ("the tool needs this param" vs
+  "the model is never shown this param") and both were checked
+  independently rather than assuming the filtering code worked because it
+  compiled.
+- Re-ran the full Step 4 RBAC test matrix (sales_user read success, write
+  denial, support_user write success with DB-verified `created_by`)
+  against the new client/server architecture to confirm the refactor
+  didn't quietly change the security properties already proven in Step 4.
+  A multi-tool-chaining request ("profile + open issues + summarize the
+  most urgent one" in one message) also confirmed the agent still reasons
+  across multiple tool calls correctly when tool schemas come from a
+  remote MCP server instead of a local Python dict.
+
+**What should NOT be trusted to AI tools without human oversight:**
+- The rate-limit crash is a good illustration of a broader pattern worth
+  calling out explicitly: an AI assistant tends to test the *happy path*
+  thoroughly (and did, extensively, in Step 4) but won't necessarily think
+  to ask "what does sustained/repeated use of this integration look like,
+  and what happens when a third-party dependency fails partway through a
+  multi-step operation?" until it actually happens. A human reviewer
+  building anything with a paid or rate-limited external API dependency
+  should deliberately ask that question rather than waiting to discover it
+  the way this session did.
+- Switching the default model to work around a quota limit is a reasonable
+  engineering call for a take-home assessment, but in a real client
+  engagement, a model substitution driven by cost/quota constraints -- even
+  a same-family, same-vendor substitution -- changes response quality and
+  behavior in ways that should be evaluated against the actual product
+  requirements, not decided unilaterally by an AI assistant chasing the
+  error away. Here it was safe because both models were already being
+  treated as interchangeable via an env var; that would not always be true.
+
+---
+
+## Step 6 — Customer Escalation Summary Skill
+
+**What was delegated:**
+Claude Code was asked to implement the brief's required Skill as a fixed,
+structured, repeatable workflow (not a one-off prompt): given a customer
+name, gather profile + open issues + full update history via the existing
+MCP tools, and return exactly four fields (executive summary, risk level,
+recommended next action, missing information) from a single Gemini call.
+
+**A real, load-bearing finding, not just a research note:**
+Gemini's Interactions API has a documented `response_format.schema`
+parameter described as constraining output to a JSON schema. It is not.
+Testing found the API accepts it silently and produces valid JSON that
+simply ignores the requested key structure entirely. This was caught
+*before* it became a hidden bug in the shipped Skill, by deliberately
+testing the schema-enforcement claim in isolation (a trivial schema
+worked; the real schema with an enum field did not) rather than trusting
+the first working-looking test result. See
+[TROUBLESHOOTING_LOG.md](./TROUBLESHOOTING_LOG.md#step-6--geminis-response_formatschema-parameter-is-accepted-but-not-enforced)
+for the full isolation sequence. The fix — describing the schema in the
+system instruction and independently validating the parsed result in
+code, with one corrective retry — is the actual guarantee this skill's
+"structured output" promise rests on, not the API parameter that looks
+like it should be doing that job.
+
+**How this was validated:**
+Ran the real skill end-to-end against an account with genuine escalation
+material (Wayne Enterprises — a critical production outage plus a stalled
+medium-priority issue) and confirmed: exactly the four required keys were
+present, `risk_level` was a valid enum value, and — checked specifically,
+not just "it looks plausible" — the content directly referenced facts only
+present in the actual seed data (the "second outage this quarter" phrasing
+from the real issue update, the real account contact's name). Also
+verified two failure paths return a clean `error` field *before* any
+Gemini call is made (nonexistent customer name; an ambiguous partial match
+across two real customers) — cheap, deterministic checks that don't burn
+API quota on inputs that can't succeed.
+
+**What should NOT be trusted to AI tools without human oversight:**
+- This is the second time in this project (after the Keycloak
+  `default-roles` bug in Step 3) that a component *looked* correct because
+  it produced a plausible, valid-shaped result, while a specific
+  documented guarantee underneath it silently didn't hold. An AI assistant
+  building a "structured output" feature will readily reach for the
+  API's own structured-output parameter because that's the obviously
+  "correct" design — the discipline that catches it when the parameter is
+  actually broken is running an isolation test against the *specific*
+  claim being relied on ("does this constrain to *this* schema," not "does
+  this produce JSON at all"), not a general smoke test. A human reviewer
+  evaluating AI-written code that claims structured/guaranteed output
+  should ask what, specifically, was tested to justify that guarantee.
+
+---
+
+## Step 7 — Redis session memory (with TTL) for follow-up context
+
+**What was delegated:**
+Claude Code was asked to add conversation continuity to `/chat`: a
+`conversation_id` backed by Redis, storing the Gemini `interaction.id`
+from a conversation's last turn (not the message history itself, which
+Gemini's Interactions API already retains server-side once
+`previous_interaction_id` is passed), with a 30-minute TTL.
+
+**How this was validated — and a note on catching a false alarm:**
+A two-turn test was the real proof: turn one asked about Stark Industries'
+open issues (which returned two, in a specific order); turn two, using the
+`conversation_id` from turn one's response, asked to *"summarize the
+history of the first one you just mentioned"* — with no customer name or
+issue id repeated. The agent correctly resolved this to the right issue,
+which is only possible if the prior turn's context was genuinely retained
+server-side across two separate HTTP requests, not a coincidence or a
+lucky guess. The Redis key's TTL was also checked directly via
+`redis-cli TTL` to confirm the 30-minute expiry is actually configured, not
+just that a key exists.
+
+Midway through this, a test script threw what looked like a JSON parsing
+bug in the API's response. It wasn't — it was this session's own bash
+one-liner (piping curl output through command substitution into a Python
+`sys.stdin` read) mangling the bytes in transit; writing the response to a
+file and loading it directly showed clean, valid JSON. This is recorded in
+[TROUBLESHOOTING_LOG.md](./TROUBLESHOOTING_LOG.md#step-7--no-app-bugs-one-shell-scripting-false-alarm-worth-recording)
+specifically because verifying which side of a test actually has the bug
+— the code, or the test harness — is exactly the discipline this project's
+debugging log is meant to demonstrate, not just the cases where the app
+was at fault.
+
+**What should NOT be trusted to AI tools without human oversight:**
+- An AI assistant investigating its own test failure has an incentive
+  structure worth naming: it's faster to "fix" a failure by changing the
+  code under test than to first rule out the test harness itself, and a
+  plausible-looking error message (here, a real Python traceback) can look
+  like sufficient evidence on its own. The correct habit — inspect the
+  actual bytes/state independently before changing either side — is one a
+  human reviewer should watch for being skipped, especially under time
+  pressure, since skipping it risks "fixing" correct code in response to a
+  broken test.
+
+---
+
+## Step 8 — Eval set + eval runner + observability logging
+
+**What was delegated:**
+Claude Code was asked to build: (1) structured JSON logging with a
+request ID threaded through every log line (tool calls, request/response
+traces, errors, latency), and (2) an 8-case eval suite covering the four
+required dimensions (tool selection, grounding, RBAC, next-action
+reasonableness), runnable via a single script against the live stack.
+
+**A bug that had been silently broken since Step 5, only surfaced by
+running the eval suite:**
+The exception handling added in Step 5 to gracefully degrade on Gemini API
+failures was catching the wrong exception class the entire time —
+confirmed via `issubclass(actual_raised_exception, caught_class) ->
+False`. It had looked correct, compiled, and even seemed to "work" in
+Step 5's own narrow testing window, but structurally could never have
+caught the real failure mode. This is a notable example of something
+worth calling out explicitly: **a fix that was never actually exercised
+under the real failure condition it was written for gave false confidence
+for three full steps (5, 6, 7) before the eval suite's heavier request
+volume finally triggered the exact scenario it was supposed to handle.**
+See
+[TROUBLESHOOTING_LOG.md](./TROUBLESHOOTING_LOG.md#step-8--the-step-5-rate-limit-fix-never-actually-worked-wrong-exception-class).
+
+**A real infrastructure constraint surfaced and escalated, not silently
+routed around:**
+Google's Gemini free tier caps at 20 requests/day *per model* — confirmed
+from the actual quota violation metadata, not guessed from the error
+message. This was exhausted purely by this session's own testing volume
+and would have blocked the eval suite (and any future grading) from
+completing. Rather than silently shrinking the eval suite to fit under
+that limit (which would have quietly reduced eval coverage to work around
+an infrastructure choice), this was surfaced to the user as an explicit
+decision (`AskUserQuestion`) with three real options and their trade-offs.
+The user chose to enable billing, which was verified to actually work
+before continuing, rather than assumed.
+
+**Eval scoring methodology — and a real lesson in what "grounding" checks
+should verify:**
+The eval runner mechanically scores tool selection, RBAC, and grounding
+via a live API check (not a human reading transcripts, and not a second
+LLM-as-judge call, which would double the API cost this same step just
+worked around). "Next-action reasonableness" is explicitly *not*
+mechanically scored — the eval report captures the actual recommendation
+text for human judgment instead of pretending a keyword match can settle
+a subjective call it can't. During development, one case's grounding check
+broke three times in three consecutive runs, each time because the model
+used a different (equally correct) English phrasing for "this customer
+doesn't exist." The fix wasn't a better keyword list — it was recognizing
+that checking the model's *prose* for a fact is inherently fragile when
+the fact has many valid phrasings, and switching to checking the
+*underlying tool's own structured result* instead, which has no
+phrasing-variance problem at all. Full detail in
+[TROUBLESHOOTING_LOG.md](./TROUBLESHOOTING_LOG.md#step-8--eval-scoring-keyword-matching-free-text-is-fragile-check-structured-tool-results-instead).
+
+**What should NOT be trusted to AI tools without human oversight:**
+- The exception-handling bug is the clearest example in this entire
+  project of why "the code compiles and the happy path works" is not the
+  same claim as "the error path actually works." An AI assistant (or any
+  engineer) writing a `try/except SpecificExceptionType` block should be
+  expected to prove the except clause actually fires under the real
+  failure condition — not just that the try block's happy path succeeds
+  and the except clause reads as plausible. This one shipped across three
+  checkpoints before a high-volume test run exposed it.
+- The decision to enable billing on a Google Cloud project is a real
+  financial and account-configuration action. It was correctly escalated
+  to the user with clear trade-offs rather than assumed or silently worked
+  around (e.g., by quietly reducing the eval suite's scope) — this is
+  exactly the category of action (spending money, changing account
+  configuration) that should never be a unilateral AI decision, regardless
+  of how small the actual cost turns out to be.
+- Eval suites that use an LLM to grade another LLM's output are common
+  practice, but they weren't used here, deliberately: doing so would have
+  roughly doubled the Gemini quota consumption this same step was fighting
+  to preserve, and would have introduced the grading model's own
+  reliability as a new variable to trust. The mechanical checks used
+  instead (tool-call trace inspection, structured tool-result checks,
+  narrow keyword checks only where a fact is genuinely close-ended) are
+  more limited in what they can assess — a human reviewer should note that
+  "reasonableness of recommended next actions" in this eval suite is
+  explicitly a human-judgment column, not an automated pass/fail, and
+  should not be mistaken for one.
