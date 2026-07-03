@@ -553,3 +553,38 @@ phrasing-variance problem at all. Full detail in
   "reasonableness of recommended next actions" in this eval suite is
   explicitly a human-judgment column, not an automated pass/fail, and
   should not be mistaken for one.
+
+---
+
+## Step 9 — README, architecture diagram, fresh-clone end-to-end test
+
+**What was delegated:**
+Claude Code was asked to write the final README (setup instructions,
+Mermaid architecture diagram, a requirements-to-code checklist), commit
+all outstanding work from Steps 4-8, and prove the whole thing actually
+works via a genuine fresh clone rather than asserting it based on the
+working directory's already-warmed-up state.
+
+**How this was validated — the fresh clone was a real, separate checkout:**
+`git clone` into an isolated temp directory with no shared filesystem
+state, then the README's own setup steps were followed literally (not a
+paraphrase of them) — `cp .env.example .env`, insert a real key, `docker
+compose up --build`. All 5 services reached healthy, the exact `/chat`
+example from the README returned the exact documented answer, and the
+full eval suite ran unmodified and scored 8/8 again. This is a materially
+stronger claim than "it worked in the directory I've been developing in
+all day," which can hide state that accumulated during development (a
+volume that was never actually reset, an image layer cached from a
+version of a file that's since changed) and would not actually be present
+for someone cloning the repository fresh.
+
+**What should NOT be trusted to AI tools without human oversight:**
+- "I tested it" and "I tested it from a clean clone" are different
+  claims, and the gap between them is exactly where a `docker compose up`
+  that only ever worked in a long-lived development directory can fail
+  for a grader on the first real attempt (a stale volume from Step 2's
+  early schema iterations, a container name collision, a cached image
+  layer). An AI assistant reporting a project as "done and working" should
+  be expected to demonstrate the second, stronger claim before a human
+  accepts the first as sufficient — this project only reached that bar at
+  the very end, after nine checkpoints of the weaker claim.

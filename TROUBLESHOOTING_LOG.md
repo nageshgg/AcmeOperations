@@ -800,6 +800,39 @@ on eval results should know that.
 
 ---
 
+## Step 9 — Fresh-clone end-to-end test: no issues found
+
+**What was tested:** `git clone` into a completely separate directory
+(`/tmp/.../fresh_clone_test`, no shared state with the working directory),
+then followed the README's own Setup section literally: `cp .env.example
+.env`, insert a real `GEMINI_API_KEY`, `docker compose up --build`. This
+is the same sequence a grader would actually run, using the same
+`container_name` values as the working directory's stack (which is why
+the working directory's containers had to be fully torn down first --
+explicit container names in `docker-compose.yml` are global, not
+namespaced per directory/project, so two copies of this stack can't run
+concurrently on the same machine).
+
+**Verified from the fresh clone, in order:**
+- All 5 services reached `healthy` with no manual intervention beyond
+  supplying the API key.
+- The exact `/chat` command from the README's "Try it" section returned
+  the exact expected answer (Globex Corporation's 2 open issues, matching
+  seed data).
+- The full eval suite (`python3 evals/run_evals.py`) ran with zero
+  modifications and scored 8/8, matching the working directory's run.
+- The Keycloak issuer-parity fix (Step 3) was independently re-verified
+  (host-facing and internal-network discovery documents returned the
+  identical issuer) -- confirming that fix is a property of the committed
+  `docker-compose.yml`/`realm-export.json`, not an artifact of leftover
+  state in the working directory.
+
+**Outcome:** No issues found. Cleaned up afterward with `docker compose
+down -v`, removed the built images, and deleted the temporary clone
+directory.
+
+---
+
 ## Step 1 — Minor: Keycloak admin env vars deprecated
 
 **Symptom:** Startup logs printed two warnings:
