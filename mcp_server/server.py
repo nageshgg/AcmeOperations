@@ -1,18 +1,103 @@
-"""Acme MCP server — placeholder entrypoint.
+"""Acme MCP server -- exposes the four Acme-specific tools over MCP.
 
-This is a Step 1 placeholder: it exists only to prove the `mcp-server`
-container builds, starts as its own service, and reports healthy inside
-docker-compose. The real implementation (a FastMCP server exposing the four
-Acme-specific tools) is built in Step 5, once the tools themselves exist
-(Step 4) and the database/schema they read from exists (Step 2).
+This is the "custom MCP server exposing the Acme-specific tools, running as
+its own container" required by the brief. It knows nothing about Keycloak,
+roles, or the agent's reasoning loop -- it only knows how to answer
+"here are my tools" and "run this tool with these arguments." That
+separation (tool definitions/execution here; agent reasoning + RBAC in the
+`app` container) is what the README's MCP section explains.
+
+Runs over the `streamable-http` transport so it's reachable from the `app`
+container over the docker network, at http://mcp-server:8001/mcp.
 """
 
-from fastapi import FastAPI
+from typing import Annotated
 
-app = FastAPI(title="Acme MCP Server (placeholder)")
+from mcp.server.fastmcp import FastMCP
+from pydantic import Field
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+import tools
+
+mcp = FastMCP(
+    "acme-operations-tools",
+    instructions=(
+        "Tools for looking up Acme Operations customers and issues, and for "
+        "recording recommended next actions on a specific issue."
+    ),
+    host="0.0.0.0",
+    port=8001,
+    stateless_http=True,
+)
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    """Liveness/readiness probe used by docker-compose's healthcheck."""
-    return {"status": "ok"}
+@mcp.custom_route("/health", methods=["GET"])
+async def health(request: Request) -> JSONResponse:
+    """Liveness/readiness probe used by docker-compose's healthcheck --
+    kept as a plain HTTP route alongside the MCP endpoint so the existing
+    `curl -f http://localhost:8001/health` check keeps working unchanged.
+    """
+    return JSONResponse({"status": "ok"})
+
+
+@mcp.tool(description="Retrieve a customer's profile (industry, account tier, primary contact) by customer name.")
+def get_customer_profile(
+    customer_name: Annotated[str, Field(description="The customer's name, e.g. 'Globex Corporation'")],
+) -> dict:
+    return tools.get_customer_profile(customer_name)
+
+
+@mcp.tool(
+    description=(
+        "Retrieve all open or in-progress issues for a given customer, "
+        "ordered by priority (most urgent first)."
+    )
+)
+def get_open_issues_for_customer(
+    customer_name: Annotated[str, Field(description="The customer's name")],
+) -> dict:
+    return tools.get_open_issues_for_customer(customer_name)
+
+
+@mcp.tool(
+    description=(
+        "Retrieve a specific issue's details and its full chronological update "
+        "history, for summarizing what has happened on that issue. Requires the "
+        "numeric issue id -- call get_open_issues_for_customer first if you "
+        "don't already know it."
+    )
+)
+def summarize_issue_history(
+    issue_id: Annotated[int, Field(description="The issue's numeric id")],
+) -> dict:
+    return tools.summarize_issue_history(issue_id)
+
+
+@mcp.tool(
+    description=(
+        "Record a recommended next action for a specific issue. Only "
+        "available to support and admin roles -- sales users cannot call "
+        "this (enforced by the caller, not by this tool)."
+    )
+)
+def create_next_action(
+    issue_id: Annotated[int, Field(description="The issue's numeric id")],
+    recommended_action: Annotated[str, Field(description="A concise, concrete recommended next step")],
+    rationale: Annotated[str, Field(description="Why this action is recommended")],
+    created_by: Annotated[
+        str,
+        Field(
+            description=(
+                "The verified username of the caller requesting this action. "
+                "Must be supplied by the calling agent from an authenticated "
+                "identity, never left to the model to guess."
+            )
+        ),
+    ],
+) -> dict:
+    return tools.create_next_action(issue_id, recommended_action, rationale, created_by)
+
+
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http")

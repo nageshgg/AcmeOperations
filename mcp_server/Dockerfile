@@ -14,4 +14,7 @@ COPY . .
 
 EXPOSE 8001
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"]
+# FastMCP's streamable-http transport runs its own ASGI server internally
+# (via mcp.run()), so there's no separate `uvicorn ...:app` invocation here
+# the way there is for the `app` service.
+CMD ["python", "server.py"]
