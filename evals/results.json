@@ -1,0 +1,572 @@
+[
+  {
+    "id": "sales_read_open_issues",
+    "dimensions": [
+      "tool_selection",
+      "grounding"
+    ],
+    "role": "sales_user",
+    "endpoint": "/chat",
+    "payload": {
+      "message": "What open issues does Initech have?"
+    },
+    "http_status": 200,
+    "response": {
+      "reply": "Initech has 2 open issues: \n1. **Data discrepancy in monthly reconciliation report** (ID: 5, Priority: critical, Created: 2026-06-10, Last updated: 2026-06-20)\n2. **Slow report generation for Q-end close** (ID: 6, Priority: medium, Created: 2026-06-25, Last updated: 2026-06-26)",
+      "tool_calls": [
+        {
+          "tool": "get_open_issues_for_customer",
+          "arguments": {
+            "customer_name": "Initech"
+          },
+          "result": {
+            "customer_name": "Initech",
+            "open_issue_count": 2,
+            "issues": [
+              {
+                "id": 5,
+                "title": "Data discrepancy in monthly reconciliation report",
+                "status": "open",
+                "priority": "critical",
+                "created_at": "2026-06-10T07:45:00+00:00",
+                "updated_at": "2026-06-20T15:10:00+00:00"
+              },
+              {
+                "id": 6,
+                "title": "Slow report generation for Q-end close",
+                "status": "open",
+                "priority": "medium",
+                "created_at": "2026-06-25T13:00:00+00:00",
+                "updated_at": "2026-06-26T09:00:00+00:00"
+              }
+            ]
+          }
+        }
+      ],
+      "interaction_id": "v1_ChdzU1ZJYXJXaE1xdTBrZFVQa016aXlRSRIXdENWSWFyN3lNS0RvbnNFUDljU1N3QVE",
+      "conversation_id": "3895195c-5db3-49e9-8dc6-ebf6d22bfc44"
+    },
+    "scores": {
+      "tool_selection": {
+        "pass": true,
+        "expected": [
+          "get_open_issues_for_customer"
+        ],
+        "actual": [
+          "get_open_issues_for_customer"
+        ],
+        "missing": []
+      },
+      "rbac": {
+        "pass": true,
+        "unexpected_denials": []
+      },
+      "grounding": {
+        "pass": true,
+        "mode": "all",
+        "keyword_hits": {
+          "reconcil": true,
+          "report generation": true
+        }
+      },
+      "tool_result": null
+    },
+    "overall_pass": true
+  },
+  {
+    "id": "sales_write_denied",
+    "dimensions": [
+      "rbac"
+    ],
+    "role": "sales_user",
+    "endpoint": "/chat",
+    "payload": {
+      "message": "Create a next action for issue 5 recommending we escalate to engineering for an ETA."
+    },
+    "http_status": 200,
+    "response": {
+      "reply": "I am unable to create a next action. It seems my role, 'sales_user', does not have the necessary permissions. Only 'admin' or 'support_user' roles can create next actions.",
+      "tool_calls": [
+        {
+          "tool": "create_next_action",
+          "arguments": {
+            "issue_id": 5,
+            "rationale": "To get an estimated time of arrival for issue resolution.",
+            "recommended_action": "Escalate to engineering for an ETA"
+          },
+          "result": {
+            "error": "Access denied: your role(s) ['default-roles-acme-operations', 'offline_access', 'sales_user', 'uma_authorization'] do not include any of the roles required to call 'create_next_action': ['admin', 'support_user']."
+          }
+        }
+      ],
+      "interaction_id": "v1_Chd1eVZJYXNxM0FmU2xuc0VQdmFXbXNBSRIXdlNWSWFwN1ZIdktDa2RVUGp1aTJvUVU",
+      "conversation_id": "be27656f-a9ea-42fa-9784-36549f3b6a6c"
+    },
+    "scores": {
+      "tool_selection": null,
+      "rbac": {
+        "pass": true,
+        "tool_result": {
+          "error": "Access denied: your role(s) ['default-roles-acme-operations', 'offline_access', 'sales_user', 'uma_authorization'] do not include any of the roles required to call 'create_next_action': ['admin', 'support_user']."
+        }
+      },
+      "grounding": null,
+      "tool_result": null
+    },
+    "overall_pass": true
+  },
+  {
+    "id": "support_summarize_issue",
+    "dimensions": [
+      "tool_selection",
+      "grounding"
+    ],
+    "role": "support_user",
+    "endpoint": "/chat",
+    "payload": {
+      "message": "Summarize the history of issue 13."
+    },
+    "http_status": 200,
+    "response": {
+      "reply": "Here's a summary of the history for issue 13:\n\n**Issue ID:** 13\n**Title:** Production outage - dashboard not loading for all users\n**Customer:** Wayne Enterprises\n**Priority:** Critical\n**Status:** Open\n\n**Description:** Full outage of the customer-facing dashboard starting 09:14 UTC, affecting all users.\n\n**Timeline of updates:**\n*   **09:14 UTC (Customer):** Reported dashboard completely down for all users, emphasizing its business-critical nature.\n*   **09:20 UTC (Support):** On-call engineer paged, and a SEV1 incident was declared.\n*   **09:50 UTC (Engineering):** Identified root cause as database connection pool exhaustion due to an unexpected traffic spike from a third-party integration partner.\n*   **10:15 UTC (Engineering):** Applied mitigation by increasing connection pool size and restarting affected service instances.\n*   **10:20 UTC (Support):** Confirmed dashboard access was restored for the majority of users as of 10:02 UTC and is monitoring for residual errors.\n*   **11:45 UTC (Customer):** Confirmed the dashboard is back up on their end but requested a full Root Cause Analysis (RCA) document and details on preventive measures, noting this is the second outage this quarter.",
+      "tool_calls": [
+        {
+          "tool": "summarize_issue_history",
+          "arguments": {
+            "issue_id": 13
+          },
+          "result": {
+            "issue": {
+              "id": 13,
+              "customer_id": 4,
+              "title": "Production outage - dashboard not loading for all users",
+              "description": "Full outage of the customer-facing dashboard starting 09:14 UTC; all users affected.",
+              "status": "open",
+              "priority": "critical",
+              "created_at": "2026-06-30T09:14:00+00:00",
+              "updated_at": "2026-06-30T11:45:00+00:00",
+              "closed_at": null,
+              "customer_name": "Wayne Enterprises"
+            },
+            "updates": [
+              {
+                "author": "Lucius Fox (Customer)",
+                "update_text": "Dashboard is completely down for all our users as of 09:14 UTC. This is business-critical for us right now.",
+                "created_at": "2026-06-30T09:14:00+00:00"
+              },
+              {
+                "author": "Support (Sam Rivera)",
+                "update_text": "On-call engineer paged immediately; incident declared SEV1.",
+                "created_at": "2026-06-30T09:20:00+00:00"
+              },
+              {
+                "author": "Engineering (Jordan Lee)",
+                "update_text": "Root cause identified: database connection pool exhaustion following an unexpected traffic spike from a third-party integration partner.",
+                "created_at": "2026-06-30T09:50:00+00:00"
+              },
+              {
+                "author": "Engineering (Jordan Lee)",
+                "update_text": "Mitigation applied: connection pool size increased and affected service instances restarted.",
+                "created_at": "2026-06-30T10:15:00+00:00"
+              },
+              {
+                "author": "Support (Sam Rivera)",
+                "update_text": "Dashboard access restored for the majority of users as of 10:02 UTC. Monitoring for residual errors.",
+                "created_at": "2026-06-30T10:20:00+00:00"
+              },
+              {
+                "author": "Lucius Fox (Customer)",
+                "update_text": "Confirmed dashboard is back up on our end. We will need a full RCA document and details on preventive measures given this is the second outage this quarter.",
+                "created_at": "2026-06-30T11:45:00+00:00"
+              }
+            ]
+          }
+        }
+      ],
+      "interaction_id": "v1_Chd3aVZJYXZPcU1QYW5rZFVQeC0zeWlROBIXeHlWSWFwbklKNzYwa2RVUG9NbU5pQWc",
+      "conversation_id": "89068dad-4818-4fc6-974c-a5a40041a43e"
+    },
+    "scores": {
+      "tool_selection": {
+        "pass": true,
+        "expected": [
+          "summarize_issue_history"
+        ],
+        "actual": [
+          "summarize_issue_history"
+        ],
+        "missing": []
+      },
+      "rbac": {
+        "pass": true,
+        "unexpected_denials": []
+      },
+      "grounding": {
+        "pass": true,
+        "mode": "all",
+        "keyword_hits": {
+          "connection pool": true,
+          "sev1": true
+        }
+      },
+      "tool_result": null
+    },
+    "overall_pass": true
+  },
+  {
+    "id": "support_write_allowed",
+    "dimensions": [
+      "rbac",
+      "next_action_reasonableness"
+    ],
+    "role": "support_user",
+    "endpoint": "/chat",
+    "payload": {
+      "message": "Create a next action for issue 13. Recommended action: publish a full RCA to the customer within 3 business days and propose connection-pool auto-scaling as a preventive measure. Rationale: this is the second outage this quarter and the customer explicitly requested an RCA and preventive measures."
+    },
+    "http_status": 200,
+    "response": {
+      "reply": "I've recorded the recommended next action for issue 13: \"publish a full RCA to the customer within 3 business days and propose connection-pool auto-scaling as a preventive measure.\" The rationale is that this is the second outage this quarter and the customer explicitly requested an RCA and preventive measures.",
+      "tool_calls": [
+        {
+          "tool": "create_next_action",
+          "arguments": {
+            "rationale": "this is the second outage this quarter and the customer explicitly requested an RCA and preventive measures",
+            "issue_id": 13,
+            "recommended_action": "publish a full RCA to the customer within 3 business days and propose connection-pool auto-scaling as a preventive measure"
+          },
+          "result": {
+            "id": 10,
+            "issue_id": 13,
+            "recommended_action": "publish a full RCA to the customer within 3 business days and propose connection-pool auto-scaling as a preventive measure",
+            "rationale": "this is the second outage this quarter and the customer explicitly requested an RCA and preventive measures",
+            "status": "proposed",
+            "created_by": "support_user",
+            "created_at": "2026-07-03T21:12:46.697905+00:00"
+          }
+        }
+      ],
+      "interaction_id": "v1_Chd6U1ZJYXZESkZiNjVrZFVQbXYyVG9RURIXMENWSWF0enBDcFMta2RVUHJieW82QU0",
+      "conversation_id": "7283988d-e807-48d7-a38a-4eca738a9def"
+    },
+    "scores": {
+      "tool_selection": {
+        "pass": true,
+        "expected": [
+          "create_next_action"
+        ],
+        "actual": [
+          "create_next_action"
+        ],
+        "missing": []
+      },
+      "rbac": {
+        "pass": true,
+        "unexpected_denials": []
+      },
+      "grounding": null,
+      "tool_result": null
+    },
+    "overall_pass": true
+  },
+  {
+    "id": "admin_profile_and_urgent_issue",
+    "dimensions": [
+      "tool_selection",
+      "grounding"
+    ],
+    "role": "admin",
+    "endpoint": "/chat",
+    "payload": {
+      "message": "Give me Wayne Enterprises' profile and tell me about their most urgent open issue."
+    },
+    "http_status": 200,
+    "response": {
+      "reply": "Wayne Enterprises is a **Premium** tier customer in the **Technology** industry. Their primary contact is Lucius Fox, whose email is lucius.fox@wayne.example.\n\nTheir most urgent open issue is a **critical production outage** where the dashboard is not loading for all users (ID: 13).",
+      "tool_calls": [
+        {
+          "tool": "get_customer_profile",
+          "arguments": {
+            "customer_name": "Wayne Enterprises"
+          },
+          "result": {
+            "id": 4,
+            "name": "Wayne Enterprises",
+            "industry": "Technology",
+            "account_tier": "Premium",
+            "primary_contact_name": "Lucius Fox",
+            "primary_contact_email": "lucius.fox@wayne.example",
+            "created_at": "2026-07-03T07:38:52.446273+00:00"
+          }
+        },
+        {
+          "tool": "get_open_issues_for_customer",
+          "arguments": {
+            "customer_name": "Wayne Enterprises"
+          },
+          "result": {
+            "customer_name": "Wayne Enterprises",
+            "open_issue_count": 2,
+            "issues": [
+              {
+                "id": 13,
+                "title": "Production outage - dashboard not loading for all users",
+                "status": "open",
+                "priority": "critical",
+                "created_at": "2026-06-30T09:14:00+00:00",
+                "updated_at": "2026-06-30T11:45:00+00:00"
+              },
+              {
+                "id": 11,
+                "title": "API rate limiting too aggressive",
+                "status": "open",
+                "priority": "medium",
+                "created_at": "2026-06-05T10:00:00+00:00",
+                "updated_at": "2026-06-08T11:30:00+00:00"
+              }
+            ]
+          }
+        }
+      ],
+      "interaction_id": "v1_ChcxU1ZJYXJla0tJV3Vuc0VQaU1DVGdRaxIXMkNWSWF1cjVJcmZpbnNFUF9mTG44UTg",
+      "conversation_id": "20388605-48cc-44a6-b196-73e8cd050f88"
+    },
+    "scores": {
+      "tool_selection": {
+        "pass": true,
+        "expected": [
+          "get_customer_profile",
+          "get_open_issues_for_customer"
+        ],
+        "actual": [
+          "get_customer_profile",
+          "get_open_issues_for_customer"
+        ],
+        "missing": []
+      },
+      "rbac": {
+        "pass": true,
+        "unexpected_denials": []
+      },
+      "grounding": {
+        "pass": true,
+        "mode": "all",
+        "keyword_hits": {
+          "premium": true,
+          "lucius fox": true
+        }
+      },
+      "tool_result": null
+    },
+    "overall_pass": true
+  },
+  {
+    "id": "admin_next_action_recommendation",
+    "dimensions": [
+      "grounding",
+      "next_action_reasonableness"
+    ],
+    "role": "admin",
+    "endpoint": "/chat",
+    "payload": {
+      "message": "Look up Umbrella Corp's current open issues, find the one about the compliance audit trail, check its full history, and tell me a good next step."
+    },
+    "http_status": 200,
+    "response": {
+      "reply": "Here's the summary of the \"Compliance audit trail missing entries\" issue for Umbrella Corp (ID: 8):\n\n**Description:** Umbrella Corp's internal compliance audit found gaps in their platform audit log for March, which is critical ahead of an upcoming regulatory audit.\n\n**History:**\n*   **June 15:** Umbrella Corp reported the missing audit log entries.\n*   **June 18:** Support confirmed that the logging service dropped a subset of audit events on March 18th during a deployment and began recovering from backup logs.\n*   **June 20:** Engineering recovered approximately 80% of the missing entries. The remaining entries were affected during a brief period when backup capture was also impacted.\n*   **June 22:** Umbrella Corp needs written confirmation of the full recovery status before their audit date and is awaiting engineering's final assessment on the remaining 20% of the entries.\n\n**Recommended Next Step:** The immediate next step should be to follow up with engineering to get their final assessment on the remaining 20% of the missing audit log entries. This is crucial as the customer requires written confirmation of full recovery status before their upcoming regulatory audit.",
+      "tool_calls": [
+        {
+          "tool": "get_open_issues_for_customer",
+          "arguments": {
+            "customer_name": "Umbrella Corp"
+          },
+          "result": {
+            "customer_name": "Umbrella Corp",
+            "open_issue_count": 2,
+            "issues": [
+              {
+                "id": 8,
+                "title": "Compliance audit trail missing entries",
+                "status": "open",
+                "priority": "high",
+                "created_at": "2026-06-15T09:30:00+00:00",
+                "updated_at": "2026-06-22T14:00:00+00:00"
+              },
+              {
+                "id": 10,
+                "title": "Request additional user seats",
+                "status": "open",
+                "priority": "low",
+                "created_at": "2026-06-28T16:00:00+00:00",
+                "updated_at": "2026-06-28T16:00:00+00:00"
+              }
+            ]
+          }
+        },
+        {
+          "tool": "summarize_issue_history",
+          "arguments": {
+            "issue_id": 8
+          },
+          "result": {
+            "issue": {
+              "id": 8,
+              "customer_id": 3,
+              "title": "Compliance audit trail missing entries",
+              "description": "Internal compliance audit found gaps in the audit log for March, ahead of an upcoming regulatory audit.",
+              "status": "open",
+              "priority": "high",
+              "created_at": "2026-06-15T09:30:00+00:00",
+              "updated_at": "2026-06-22T14:00:00+00:00",
+              "closed_at": null,
+              "customer_name": "Umbrella Corp"
+            },
+            "updates": [
+              {
+                "author": "Alice Marlow (Customer)",
+                "update_text": "Our internal compliance audit found gaps in the platform audit log for the month of March, ahead of an upcoming FDA-adjacent regulatory audit.",
+                "created_at": "2026-06-15T09:30:00+00:00"
+              },
+              {
+                "author": "Support (Priya Nair)",
+                "update_text": "Confirmed the logging service dropped a subset of audit events during a deployment window on March 18. Beginning recovery from backup logs.",
+                "created_at": "2026-06-18T10:00:00+00:00"
+              },
+              {
+                "author": "Engineering (Jordan Lee)",
+                "update_text": "Recovered approximately 80% of the missing entries from backups. Remaining entries appear to have been generated during a brief window where backup capture itself was also affected.",
+                "created_at": "2026-06-20T16:00:00+00:00"
+              },
+              {
+                "author": "Support (Priya Nair)",
+                "update_text": "Customer needs written confirmation of full recovery status before their audit date; awaiting engineering's final assessment on the remaining 20%.",
+                "created_at": "2026-06-22T14:00:00+00:00"
+              }
+            ]
+          }
+        }
+      ],
+      "interaction_id": "v1_ChczaVZJYXB6ZEdaRGluc0VQaXVDZ3NRZxIXNXlWSWFvT1BNdXZubnNFUDY3ZXB3UWc",
+      "conversation_id": "84a212bc-638f-48b9-95a3-36b5abed1c2b"
+    },
+    "scores": {
+      "tool_selection": {
+        "pass": true,
+        "expected": [
+          "get_open_issues_for_customer",
+          "summarize_issue_history"
+        ],
+        "actual": [
+          "get_open_issues_for_customer",
+          "summarize_issue_history"
+        ],
+        "missing": []
+      },
+      "rbac": {
+        "pass": true,
+        "unexpected_denials": []
+      },
+      "grounding": {
+        "pass": true,
+        "mode": "all",
+        "keyword_hits": {
+          "20%": true
+        }
+      },
+      "tool_result": null
+    },
+    "overall_pass": true
+  },
+  {
+    "id": "sales_escalation_skill",
+    "dimensions": [
+      "grounding",
+      "next_action_reasonableness"
+    ],
+    "role": "sales_user",
+    "endpoint": "/skills/escalation-summary",
+    "payload": {
+      "customer_name": "Wayne Enterprises"
+    },
+    "http_status": 200,
+    "response": {
+      "executive_summary": "Wayne Enterprises, a Premium account, is currently facing critical operational challenges with two open issues. A recent production outage for their dashboard on June 30th, though mitigated, was the second such incident this quarter, prompting the customer to demand a full Root Cause Analysis (RCA) and preventive measures. Concurrently, a medium-priority API rate-limiting issue causing dropped webhooks has been open for over three weeks, with a proposed solution awaiting engineering sign-off. The combination of recurring critical outages and stalled progress on another key integration issue indicates significant customer frustration and a high risk of account dissatisfaction.",
+      "risk_level": "Critical",
+      "recommended_next_action": "Immediately schedule an urgent call with Lucius Fox to provide a concrete ETA for the RCA and preventive measures for the recent outage, and to commit to an immediate resolution plan for the API rate limiting issue with a confirmed timeline.",
+      "missing_information": [
+        "Specific ETA for the delivery of the RCA document and preventive measures plan for the critical outage.",
+        "Status and reason for the delay in engineering sign-off for the API rate limit increase, and an ETA for its implementation.",
+        "Details or context regarding the 'first outage this quarter' mentioned by the customer."
+      ],
+      "customer_name": "Wayne Enterprises",
+      "open_issue_count": 2
+    },
+    "scores": {
+      "tool_selection": null,
+      "rbac": {
+        "pass": true,
+        "unexpected_denials": []
+      },
+      "grounding": null,
+      "tool_result": null
+    },
+    "overall_pass": true
+  },
+  {
+    "id": "nonexistent_customer_no_fabrication",
+    "dimensions": [
+      "grounding"
+    ],
+    "role": "support_user",
+    "endpoint": "/chat",
+    "payload": {
+      "message": "What's the profile for Nonexistent Corp?"
+    },
+    "http_status": 200,
+    "response": {
+      "reply": "I can't find a customer named \"Nonexistent Corp\". Did you spell it correctly?",
+      "tool_calls": [
+        {
+          "tool": "get_customer_profile",
+          "arguments": {
+            "customer_name": "Nonexistent Corp"
+          },
+          "result": {
+            "not_found": true
+          }
+        }
+      ],
+      "interaction_id": "v1_ChdCaVpJYXBIYUs5dVdrZFVQM09HS3dBZxIXQ1NaSWFwNlRDZW14bnNFUGo3M2VxQWM",
+      "conversation_id": "c1dd017e-d3ab-40ae-9613-4f83f250e623"
+    },
+    "scores": {
+      "tool_selection": {
+        "pass": true,
+        "expected": [
+          "get_customer_profile"
+        ],
+        "actual": [
+          "get_customer_profile"
+        ],
+        "missing": []
+      },
+      "rbac": {
+        "pass": true,
+        "unexpected_denials": []
+      },
+      "grounding": null,
+      "tool_result": {
+        "pass": true,
+        "expected": {
+          "tool": "get_customer_profile",
+          "key": "not_found",
+          "value": true
+        },
+        "actual_result": {
+          "not_found": true
+        }
+      }
+    },
+    "overall_pass": true
+  }
+]
