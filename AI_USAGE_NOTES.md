@@ -74,3 +74,41 @@ conversation).
   assumed, but in a real client engagement this kind of deviation from a
   written spec should always be confirmed in writing with the client, not just
   in a chat turn.
+
+---
+
+## Step 2 — PostgreSQL schema + seed data
+
+**What was delegated:**
+Claude Code was asked to design and write the full schema (`customers`,
+`issues`, `issue_updates`, `next_actions`, `users`) and a realistic seed
+dataset sized to exercise every agent capability in the brief, as two
+`db/init/*.sql` files that auto-run via the official Postgres image.
+
+**How this was validated:**
+Not just read — actually run. Rebuilt the stack with a fresh (empty)
+Postgres volume so the init scripts would execute, then verified with
+`psql`: table list matches the schema, row counts match the seed plan
+exactly (5 customers; 16 issues, 10 open/6 closed; 41 issue_updates; 2 seeded
+next_actions; 3 users with the expected roles), and two representative join
+queries (open issues for a named customer; full chronological update history
+for a specific issue) returned correct, correctly-ordered results. See
+[TROUBLESHOOTING_LOG.md](./TROUBLESHOOTING_LOG.md#step-2--no-issues-one-gotcha-worth-recording-for-future-re-testing)
+for the exact commands.
+
+**Observations relevant to AI oversight on this step:**
+- The seed data content (customer names, issue narratives, escalation
+  scenarios) is synthetic and plausible-sounding by construction — that's
+  the point of an LLM writing fictional demo data, but it's worth being
+  explicit that none of it was validated against anything real because there
+  was nothing real to validate it against. In a real client engagement,
+  seed/test data of this kind should be clearly and permanently labeled as
+  synthetic wherever it could be mistaken for production data, especially if
+  it ever migrates into a shared or long-lived environment.
+- Row-count and join verification (the "how this was validated" section
+  above) is exactly the kind of check that's cheap to run and easy to skip —
+  an AI assistant asserting "seed data loaded successfully" without actually
+  querying the database back is a claim, not a verification. This is worth
+  watching for in any AI-assisted database work: schema/seed files that
+  parse and apply without error are not the same claim as data that is
+  structurally correct.

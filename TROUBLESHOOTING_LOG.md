@@ -88,6 +88,56 @@ returning HTTP 200.
 
 ---
 
+## Step 2 — No issues; one gotcha worth recording for future re-testing
+
+**Symptom:** N/A — schema and seed data loaded correctly on the first
+attempt. Recording one non-bug gotcha here because it will bite again the
+next time schema or seed data changes.
+
+**Gotcha:** Postgres's official image only runs the scripts in
+`/docker-entrypoint-initdb.d` (our `db/init/*.sql`) on the *first* container
+start against an *empty* data volume. Since Step 1 had already started
+Postgres once (creating and initializing an empty volume), simply running
+`docker compose up` again after adding `001_schema.sql` / `002_seed_data.sql`
+would **not** have run them — Postgres would have booted against the
+existing (schema-less) volume and silently done nothing with the new SQL
+files.
+
+**Action taken / commands used:**
+```bash
+docker volume ls | grep acme                 # confirm the volume from Step 1 existed
+docker compose down -v                       # -v removes the named volume too
+docker compose up -d --build
+docker exec acme_postgres psql -U acme_admin -d acme_operations \
+  -c "\dt" \
+  -c "SELECT count(*) FROM customers;" \
+  -c "SELECT count(*), count(*) FILTER (WHERE status IN ('open','in_progress')) FROM issues;" \
+  -c "SELECT count(*) FROM issue_updates;" \
+  -c "SELECT count(*) FROM next_actions;" \
+  -c "SELECT username, role FROM users ORDER BY id;"
+```
+
+**Why this approach:** `docker compose down` alone leaves named volumes
+intact by design (so you don't lose data on a routine restart) — `-v` is the
+explicit opt-in to also drop them. Given this was a fresh dev volume I'd
+created in this same session (not the user's data), removing it was safe;
+in general, always check `docker volume ls` and confirm what a volume holds
+before removing it.
+
+**Outcome:** Confirmed via `psql` that all 5 tables exist and row counts
+match the seed plan exactly (5 customers, 16 issues split 10 open / 6
+closed, 41 issue_updates, 2 seeded next_actions, 3 users). Also spot-checked
+the actual join queries later tools will rely on — open issues for a named
+customer, and full chronological update history for a specific issue by
+title — both returned correctly ordered, correctly joined results.
+
+**Note for later:** any time `db/init/*.sql` changes after this point,
+`docker compose down -v` (or manually dropping the `acmeoperations_postgres_data`
+volume) is required before `up` for the change to actually take effect —
+a plain restart will not re-run init scripts against existing data.
+
+---
+
 ## Step 1 — Minor: Keycloak admin env vars deprecated
 
 **Symptom:** Startup logs printed two warnings:
