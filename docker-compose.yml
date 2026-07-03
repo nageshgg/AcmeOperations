@@ -33,9 +33,6 @@ services:
       retries: 10
 
   keycloak:
-    # Pinned for reproducibility. Re-verify this is still a sensible current
-    # stable version in Step 3, when we configure the realm import and the
-    # hostname/issuer settings (that step requires checking current docs).
     image: quay.io/keycloak/keycloak:26.0
     container_name: acme_keycloak
     restart: unless-stopped
@@ -43,12 +40,21 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KC_HEALTH_ENABLED: "true"
-    # Step 3 switches this to `start-dev --import-realm` once
-    # keycloak/realm-export.json exists and is mounted in. Passing
-    # --import-realm now (before that file exists) would crash the container.
-    command: start-dev
+      # Fixes the token issuer to a single, stable URL regardless of whether
+      # a request reaches Keycloak via the browser (http://localhost:8080)
+      # or via the internal docker network (http://keycloak:8080 from the
+      # `app` container). Without this, Keycloak derives the issuer from
+      # each request's Host header, so tokens issued via one path and
+      # validated via the other would carry a mismatched `iss` claim. The
+      # `app` container still reaches Keycloak over the internal network
+      # address for actually fetching JWKS/discovery data; only the
+      # `iss` claim comparison uses this fixed external URL.
+      KC_HOSTNAME: http://localhost:8080
+    command: start-dev --import-realm
     ports:
       - "8080:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
     healthcheck:
       # The Keycloak image has bash but not curl/wget, so health is checked by
       # opening a raw TCP connection to the management health endpoint

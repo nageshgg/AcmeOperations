@@ -1,0 +1,91 @@
+{
+  "realm": "acme-operations",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "sales_user",
+        "description": "Read-only access to customer and issue data"
+      },
+      {
+        "name": "support_user",
+        "description": "Read and update access for issues"
+      },
+      {
+        "name": "admin",
+        "description": "Full access, including creating and updating next actions"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "acme-app",
+      "name": "Acme Operations API",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "redirectUris": [
+        "http://localhost:8000/*",
+        "http://localhost:8080/realms/acme-operations/account/*"
+      ],
+      "webOrigins": ["*"],
+      "protocolMappers": [
+        {
+          "name": "acme-app-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "acme-app",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "sales_user",
+      "email": "sam.rivera@acmeops.example",
+      "firstName": "Sam",
+      "lastName": "Rivera",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        { "type": "password", "value": "SalesUser123!", "temporary": false }
+      ],
+      "realmRoles": ["default-roles-acme-operations", "sales_user"]
+    },
+    {
+      "username": "support_user",
+      "email": "priya.nair@acmeops.example",
+      "firstName": "Priya",
+      "lastName": "Nair",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        { "type": "password", "value": "SupportUser123!", "temporary": false }
+      ],
+      "realmRoles": ["default-roles-acme-operations", "support_user"]
+    },
+    {
+      "username": "admin",
+      "email": "alex.kim@acmeops.example",
+      "firstName": "Alex",
+      "lastName": "Kim",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        { "type": "password", "value": "AdminUser123!", "temporary": false }
+      ],
+      "realmRoles": ["default-roles-acme-operations", "admin"]
+    }
+  ]
+}

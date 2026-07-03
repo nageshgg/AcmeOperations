@@ -112,3 +112,99 @@ for the exact commands.
   watching for in any AI-assisted database work: schema/seed files that
   parse and apply without error are not the same claim as data that is
   structurally correct.
+
+---
+
+## Step 3 — Keycloak realm + FastAPI bearer-token validation + RBAC
+
+**What was delegated:**
+Claude Code was asked to author a Keycloak realm as a hand-written partial
+realm-representation JSON (not clicked through the admin console and
+exported — see below for why that distinction matters), wire it into
+`docker-compose.yml` via `--import-realm`, fix the browser-vs-internal-network
+issuer mismatch the brief explicitly calls out, and write the FastAPI
+JWT-validation + RBAC dependency layer (`app/auth.py`) plus two demo routes
+proving the flow end-to-end.
+
+**How this was validated:**
+Every claim in this step was checked by actually running it, not by
+inspecting the config/code and reasoning that it should work:
+- Confirmed the issuer-mismatch fix (`KC_HOSTNAME`) by diffing the OIDC
+  discovery document's `issuer` field fetched from the host vs. from inside
+  the `app` container — they must be byte-identical for token validation to
+  work regardless of how a token was obtained.
+- Fetched a real access token for all three seeded users (`sales_user`,
+  `support_user`, `admin`) via Keycloak's password grant, then called both
+  `/me` (should succeed for all three) and `/admin/ping` (should succeed
+  only for `admin`) with each token — 6 requests, all returned the expected
+  status code.
+- Checked the negative cases too, not just the happy path: no token, and a
+  garbage token, both correctly rejected (401).
+See
+[TROUBLESHOOTING_LOG.md](./TROUBLESHOOTING_LOG.md#step-3--app-container-crash-looped-keyerror-keycloak_issuer)
+for the exact commands and two issues found along the way (a stale local
+`.env` missing new variables, and FastAPI's `HTTPBearer` defaulting to `403`
+instead of `401` for missing credentials — both fixed and re-verified).
+
+**Decisions made during this step (recorded for traceability):**
+- The realm was authored directly as JSON rather than built by hand in the
+  Keycloak admin console and then exported. This was a deliberate choice for
+  reproducibility (`git clone` + `docker compose up` must fully recreate the
+  realm with no manual admin-console steps) — but it means the realm's
+  correctness rests on my knowledge of Keycloak's realm-representation JSON
+  schema being accurate, which is exactly the kind of claim that needed
+  runtime verification (see above) rather than being trusted on inspection
+  alone.
+- Test user passwords are stored in plaintext in `keycloak/realm-export.json`
+  (which is committed to git). This is acceptable *only* because these are
+  disposable local-dev credentials for a take-home assessment with no real
+  data behind them — this pattern must never be replicated for anything
+  resembling a real environment. Flagged explicitly here and in
+  `.env.example` so it isn't mistaken for an acceptable practice generally.
+
+**What should NOT be trusted to AI tools without human oversight:**
+- Auth/authz code is exactly the category where "looks right" and "is right"
+  diverge most dangerously, and where the cost of being wrong is highest (a
+  subtly-broken RBAC check fails silently — it doesn't crash, it just lets
+  the wrong people through, or locks the right people out, and nobody
+  notices until an audit or an incident). Every claim about this step's auth
+  flow was independently re-verified against a running system precisely
+  because "the code looks correct" is not a sufficient bar for this category
+  of change, AI-written or not. In a real engagement, auth/authz logic
+  written or modified by an AI tool should get a dedicated human security
+  review pass before shipping, separate from ordinary code review.
+- The decision to store realistic-looking (if fake) passwords in a
+  committed file is a judgment call that trades reproducibility for a
+  secret-hygiene compromise. An AI assistant will make that trade
+  automatically when asked for full reproducibility; a human reviewer should
+  be the one deciding whether that trade is acceptable for a given
+  repository's actual visibility and lifespan, not the assistant.
+
+**Addendum — the Keycloak Account Console 401 the user found by actually
+testing the browser flow themselves:**
+This is worth calling out on its own because it's the clearest example so
+far in this project of why the user's insistence on a manual verification
+step (rather than accepting "I tested it and it works") mattered. Every
+scripted check I had run before that point — token issuance for all three
+roles, `/me`, `/admin/ping`, negative cases — passed. None of them would
+have caught this bug, because it lived entirely inside Keycloak's own
+bundled Account Console UI and its interaction with a subtlety of
+`--import-realm` (imported users don't automatically get the realm's
+default role bundle the way admin-console-created users do). The actual
+root cause (a missing `default-roles-acme-operations` role assignment,
+which meant tokens carried no `aud` claim, which Keycloak's own Account REST
+API then rejected) took real investigative work to isolate — several
+plausible-sounding hypotheses (a leaked protocol mapper, a
+`localhost`-vs-`127.0.0.1` mismatch, a `Secure`-cookie-over-HTTP issue) were
+tested and ruled out one at a time against the running system, rather than
+picking the first plausible story and calling it fixed. See
+[TROUBLESHOOTING_LOG.md](./TROUBLESHOOTING_LOG.md#step-3--keycloaks-own-account-console-showed-something-went-wrong-http-401)
+for the full investigation.
+
+The general lesson: a bearer-token flow can be thoroughly, correctly
+verified and a *browser*-based login flow can still be broken, because they
+exercise different code paths (the account console depends on Keycloak's
+own default-role/audience machinery that our own FastAPI validation never
+touches). "I verified the API" and "I verified the product" are different
+claims — this is exactly the gap a human clicking through the actual UI is
+positioned to catch that an API-level test suite is not.
