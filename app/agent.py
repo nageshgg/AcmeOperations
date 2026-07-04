@@ -60,13 +60,18 @@ SYSTEM_INSTRUCTION = (
 MAX_TOOL_ITERATIONS = 8
 
 
-async def _execute_tool(tool_name: str, arguments: dict, caller: dict) -> dict:
+async def _execute_tool(tool_name: str, arguments: dict, caller: dict) -> tuple[dict, float]:
     """RBAC-gated tool dispatch -- the single point every tool call passes
     through. The model only ever sees the result of this function; it has
     no path to bypass the role check, and no path to reach mcp_client
     without going through it first. Every call is logged (name, arguments,
     caller, outcome, latency) -- this is the "tool call logs" half of
     Step 8's observability requirement.
+
+    Returns `(result, duration_ms)`. The duration is surfaced to the caller
+    (in addition to being logged) so the frontend's "Agent activity" panel
+    can display per-tool latency -- a denied call (RBAC) or one that raised
+    before `mcp_client.call_tool` returns 0.0 since no real call was timed.
     """
     username = caller.get("preferred_username")
     denial = rbac_policy.check_access(tool_name, caller)
@@ -75,7 +80,7 @@ async def _execute_tool(tool_name: str, arguments: dict, caller: dict) -> dict:
             "tool_call_denied", tool=tool_name, arguments=arguments,
             caller=username, reason=denial,
         )
-        return {"error": denial}
+        return {"error": denial}, 0.0
 
     start = time.monotonic()
     try:
@@ -85,14 +90,14 @@ async def _execute_tool(tool_name: str, arguments: dict, caller: dict) -> dict:
             "tool_call_error", level=logging.ERROR, tool=tool_name,
             arguments=arguments, caller=username, error=str(exc),
         )
-        return {"error": f"Tool '{tool_name}' failed: {exc}"}
+        return {"error": f"Tool '{tool_name}' failed: {exc}"}, 0.0
 
     duration_ms = round((time.monotonic() - start) * 1000, 1)
     observability.log_event(
         "tool_call", tool=tool_name, arguments=arguments, caller=username,
         duration_ms=duration_ms, success="error" not in result,
     )
-    return result
+    return result, duration_ms
 
 
 async def run_agent(
@@ -140,9 +145,14 @@ async def run_agent(
 
             result_steps = []
             for call in function_calls:
-                result = await _execute_tool(call.name, call.arguments, caller)
+                result, duration_ms = await _execute_tool(call.name, call.arguments, caller)
                 tool_call_log.append(
-                    {"tool": call.name, "arguments": call.arguments, "result": result}
+                    {
+                        "tool": call.name,
+                        "arguments": call.arguments,
+                        "result": result,
+                        "duration_ms": duration_ms,
+                    }
                 )
                 result_steps.append(
                     {

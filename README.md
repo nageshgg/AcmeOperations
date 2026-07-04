@@ -24,6 +24,7 @@ auditable, observable request path.
 | Eval set (5-10 questions), 4 dimensions, runnable | `evals/` — [Evaluation](#evaluation) |
 | Observability: tool logs, traces, errors, latency | `app/observability.py` — [Observability](#observability) |
 | README, architecture diagram, trade-offs, AI usage notes | This file + `AI_USAGE_NOTES.md` |
+| Minimal web UI (login, chat, agent activity, RBAC-aware) | `app/static/index.html`, served at `/` — [Web UI](#web-ui) |
 
 ## Tech stack
 
@@ -92,6 +93,9 @@ Or open **http://localhost:8080/realms/acme-operations/account/** in a
 browser and log in as any test user above to see a working interactive
 login (separately from the bearer-token flow above).
 
+**Or use the web UI** — open **http://localhost:8000/** directly; see
+[Web UI](#web-ui) below.
+
 **Run the eval suite:** `python3 evals/run_evals.py` (stack must be
 running; standard library only, no `pip install` needed).
 
@@ -107,13 +111,13 @@ graph TD
 
     subgraph Compose["docker compose (single 'docker compose up')"]
         Keycloak["Keycloak<br/>realm: acme-operations<br/>roles: sales_user / support_user / admin"]
-        App["app (FastAPI)<br/>/chat · /skills/escalation-summary<br/>agent.py + auth.py + rbac_policy.py"]
+        App["app (FastAPI)<br/>/ (web UI) · /chat · /skills/escalation-summary<br/>agent.py + auth.py + rbac_policy.py"]
         MCP["mcp-server (FastMCP)<br/>streamable-http :8001<br/>4 tools, owns Postgres queries"]
         Postgres[("PostgreSQL<br/>customers, issues, issue_updates,<br/>next_actions, users")]
         Redis[("Redis<br/>conversation_id → interaction_id<br/>TTL 30 min")]
     end
 
-    User -- "1 . login (password grant)" --> Keycloak
+    User -- "1 . login (browser: Authorization Code + PKCE via keycloak-js;<br/>curl/evals: password grant)" --> Keycloak
     User -- "2 . bearer token" --> App
     App -- "validate JWT via JWKS" --> Keycloak
     App -- "3 . agent reasoning loop" --> Gemini
@@ -130,6 +134,51 @@ dispatched over MCP to `mcp-server`, which is the only thing that talks to
 Postgres (③), and `session_store.py` persists just enough state in Redis
 to continue the conversation on the next request (④). Every step along the
 way is logged with a shared request ID — see [Observability](#observability).
+
+## Web UI
+
+A minimal, single-page frontend is served directly by the existing `app`
+container at **`http://localhost:8000/`** — no new Docker service, no new
+build step, no framework. It's one file, `app/static/index.html`
+(inline CSS/JS), served by a plain `GET /` route in `app/main.py` that
+returns it as HTML; every other existing route is unchanged.
+
+**Login:** the page uses [`keycloak-js`](https://www.npmjs.com/package/keycloak-js)
+(loaded from the jsdelivr CDN as an ES module import — the published
+package ships module-only, with no UMD/global build, see
+`TROUBLESHOOTING_LOG.md`) to run the OAuth2 **Authorization Code flow with
+PKCE (S256)** against the same `acme-operations` realm / `acme-app` client
+used everywhere else in this project. `keycloak/realm-export.json` was
+updated for this: `webOrigins` tightened from `["*"]` to
+`["http://localhost:8000"]`, and PKCE (`S256`) is now enforced
+server-side via the client's `attributes` block, not just requested by
+the browser. `redirectUris` already covered `http://localhost:8000/*`
+from Step 3, and the issuer the browser sees
+(`http://localhost:8080/realms/acme-operations`, via `KC_HOSTNAME`)
+already matched what `app/auth.py` validates — nothing needed to change
+there.
+
+**After logging in:**
+- A badge in the header reads "Logged in as: `<username>` (`<role>`)" —
+  populated from the existing `GET /me` endpoint, not by re-deriving roles
+  from the token client-side, so identity display and the backend's own
+  notion of the caller's roles can't drift apart.
+- A chat box sends messages to the existing `POST /chat` with the
+  browser's bearer token and renders the conversation.
+- A collapsible **"Agent activity"** panel lists, per turn, which tool(s)
+  the agent called and their latency. This required one additive backend
+  change: `app/agent.py`'s `tool_call_log` entries gained a `duration_ms`
+  field (the duration was already being computed for the observability
+  log line, just never returned) — `tool`, `arguments`, and `result` are
+  unchanged, so nothing else consuming `/chat`'s response shape is
+  affected.
+- If `/chat` returns `403` (an RBAC-restricted action), the chat shows a
+  plain "Your role does not permit this action" message instead of a raw
+  error body.
+- A logout button calls `keycloak.logout()`.
+
+**To try it:** see the exact verification steps at the end of
+`AI_USAGE_NOTES.md`'s entry for this feature.
 
 ## MCP: why it's used here
 

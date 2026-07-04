@@ -34,7 +34,10 @@
         "http://localhost:8000/*",
         "http://localhost:8080/realms/acme-operations/account/*"
       ],
-      "webOrigins": ["*"],
+      "webOrigins": ["http://localhost:8000"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
       "protocolMappers": [
         {
           "name": "acme-app-audience",

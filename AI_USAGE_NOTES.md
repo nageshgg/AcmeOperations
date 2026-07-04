@@ -588,3 +588,116 @@ for someone cloning the repository fresh.
   be expected to demonstrate the second, stronger claim before a human
   accepts the first as sufficient — this project only reached that bar at
   the very end, after nine checkpoints of the weaker claim.
+
+---
+
+## Step 10 — Minimal Web UI (post-completion addition)
+
+**What was delegated:**
+After the original 9-step build was complete and committed, Claude Code
+was asked to add a minimal frontend on top of the existing project, under
+explicit constraints: no new Docker services or build steps, a single
+static page served from the existing FastAPI app at `/`, Keycloak login
+via Authorization Code + PKCE (not the password-grant flow the eval
+suite/curl examples use), a role badge, a chat UI hitting the existing
+`/chat` endpoint, a collapsible "agent activity" panel showing tool calls
+and latency, and clear (not raw) handling of 403 responses. The plan was
+presented and approved before any code was written, per the user's
+explicit instruction.
+
+**What was built:**
+- `app/static/index.html` — one self-contained file (inline CSS/JS, no
+  framework), covering login, the role badge, chat, the activity panel,
+  logout, and 403 handling.
+- `app/main.py` — one new `GET /` route serving that file. Deliberately
+  *not* a `StaticFiles` mount at the root, since a mount at `/` risks
+  shadowing existing routes like `/chat` or `/me` depending on route
+  registration order; an explicit `GET /` route can only ever match the
+  exact root path.
+- `app/agent.py` — one additive change: `_execute_tool` already computed
+  `duration_ms` for its own observability log line but never returned it;
+  it now returns `(result, duration_ms)`, and `tool_call_log` entries gain
+  a `duration_ms` field. `tool`, `arguments`, and `result` are untouched,
+  so this cannot break anything already consuming `/chat`'s response.
+- `keycloak/realm-export.json` — `webOrigins` tightened from `["*"]` to
+  `["http://localhost:8000"]` (the actual app origin, matching the user's
+  explicit ask, not just the wildcard that happened to already work), and
+  a client `attributes` block added to enforce PKCE (`S256`) server-side
+  rather than relying on the browser to request it.
+
+**How this was validated:**
+- Confirmed via `curl` against the live stack (not assumed) that: the
+  `/chat` endpoint still returns its existing fields unchanged, plus the
+  new `duration_ms` field; the realm's `.well-known/openid-configuration`
+  issuer still matches what `app/auth.py` validates after the
+  realm-export change; RBAC denial for a restricted role still behaves
+  the same as before this change.
+- The `webOrigins`/PKCE realm-export change required tearing down
+  Keycloak's volume (`docker compose down -v`) for `--import-realm` to
+  re-apply it, which was called out to the user (as a destructive action)
+  before running — a `-v` teardown also wipes Postgres, though that data
+  is fully reseeded by `db/init/*.sql` on the next `up`.
+- The user then tested the actual browser login flow directly and
+  reported it did not redirect to the Keycloak login page at all.
+
+**A real bug this surfaced (not caught by any of the checks above):**
+The initial implementation loaded `keycloak-js` via a plain
+`<script src="https://cdn.jsdelivr.net/npm/keycloak-js@26.0.7/dist/keycloak.min.js">`
+tag — a guess at the CDN path based on older keycloak-js conventions, not
+verified against what the package actually publishes. Two mistakes
+compounded: (1) that exact path 404s (current keycloak-js publishes its
+build at `lib/keycloak.js`, not `dist/keycloak.min.js`) — caught before
+the user ever tested, by `curl`-ing the CDN URL directly rather than
+trusting the guessed path; (2) even after fixing the path, the file
+itself turned out to be an ES module (`export default Keycloak;`,
+confirmed by fetching and reading the actual file content) with no
+UMD/global build in this version at all. A plain, non-module
+`<script src>` tag throws a parse error on `export default` and silently
+leaves `window.Keycloak` undefined — `new Keycloak(...)` then throws, and
+because `main()` had no top-level `try/catch` at that point, the failure
+was completely invisible: no redirect, no visible error, just a page that
+looked like it was doing nothing. This second issue was only caught
+because the user actually opened the page in a real browser and reported
+the symptom — none of the `curl`-based checks above could have caught it,
+since they only exercise the JSON API, not browser-executed JS. Fixed by
+importing `Keycloak` as an ES module (`<script type="module">` +
+`import Keycloak from "..."`) instead of relying on a global, and by
+adding a top-level `try/catch` in `main()` that renders any startup
+failure directly on the page instead of only in the browser console.
+
+**What should NOT be trusted to AI tools without human oversight:**
+- A CDN URL for a third-party package is a guess until it's actually
+  fetched and inspected — both the wrong path (404) and the right path
+  serving an unexpected module format were only caught by curling the URL
+  and reading the response, not by recalling "what keycloak-js CDN usage
+  typically looks like" from training data. "The file loads" and "the
+  file behaves the way the calling code assumes" are different claims,
+  and only the first was verified before the bug shipped.
+- Real, interactive browser testing (a human actually opening the page
+  and clicking through the login flow) caught a class of bug that no
+  amount of `curl`-based API verification could have: a JS module-loading
+  failure is invisible to any check that only inspects HTTP responses.
+  Frontend work should not be reported as "done and verified" on the
+  strength of backend/API checks alone, even when those checks are
+  genuinely thorough.
+
+**Exact steps to verify:**
+1. Ensure the stack is running: `docker compose up -d --build` (from the
+   `AcmeOperations/` directory), then `docker compose ps` should show all
+   5 services `healthy`.
+2. Open **http://localhost:8000/** in a browser.
+3. You should be redirected to a Keycloak login page for the
+   `acme-operations` realm. Log in as `support_user` / `SupportUser123!`
+   (or `sales_user`/`SalesUser123!`, or `admin`/`AdminUser123!`).
+4. After login, you should land back on `http://localhost:8000/` and see
+   a badge reading "Logged in as: support_user (support_user)" and a
+   "Log out" button.
+5. Type a message, e.g. "Summarize the history of issue 13.", and press
+   Enter or click Send. You should see your message and the agent's reply
+   appear in the conversation, and the "Agent activity" panel on the
+   right should show `summarize_issue_history` with a latency in ms.
+6. Log out, log back in as `sales_user` / `SalesUser123!`, and ask:
+   "Create a next action for issue 5 recommending we escalate to
+   engineering for an ETA." You should see either a plain "Your role does
+   not permit this action" message, or the model declining the action in
+   its own reply — not a raw error or stack trace.

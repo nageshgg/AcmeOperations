@@ -854,3 +854,64 @@ container's own logs, not recalled from training data — so this was a
 verified fix, not a guess about Keycloak's current env var names.
 
 **Outcome:** Warnings no longer appear on a clean restart.
+
+---
+
+## Step 10 — Web UI: keycloak-js CDN script silently failed to load
+
+**Symptom:** Opening `http://localhost:8000/` loaded the page (HTTP 200,
+confirmed via `curl`), but the browser never redirected to Keycloak's
+login page — the page just sat there, apparently doing nothing, with no
+visible error.
+
+**Root cause (found in two stages):**
+1. The frontend's first `<script src="...">` tag pointed at
+   `https://cdn.jsdelivr.net/npm/keycloak-js@26.0.7/dist/keycloak.min.js`
+   — a guessed path based on older keycloak-js versions' conventions.
+   `curl -s -o /dev/null -w "%{http_code}" <that URL>` returned `404`.
+   Querying jsdelivr's package API
+   (`https://data.jsdelivr.com/v1/packages/npm/keycloak-js@26.0.7`)
+   showed the actual published file is at `lib/keycloak.js`, not
+   `dist/keycloak.min.js`. `curl`-ing that corrected URL returned `200`.
+2. Fixing the path alone wasn't enough. Fetching the file's actual
+   content (`curl ... | tail -c 600` and `grep -n "^export"`) showed it
+   ends in `export default Keycloak;` — i.e. this version of keycloak-js
+   ships as an ES module only, with no UMD/global-variable build. A plain
+   (non-`module`) `<script src>` tag executes file contents in the global
+   script grammar, where a top-level `export` statement is a **syntax
+   error** — the script fails to parse, throws, and `window.Keycloak` is
+   left undefined. The page's own inline script then called
+   `new Keycloak(...)`, which threw a `ReferenceError`; since `main()` had
+   no top-level `try/catch` at that point, the exception was swallowed by
+   the browser's unhandled-rejection handling with nothing rendered to
+   the page — hence "loads fine, does nothing, no visible error."
+
+**Action taken / commands used:**
+- Verified the CORS headers on the corrected URL would actually permit a
+  cross-origin ES module import: `curl -sI <url> | grep -i access-control`
+  confirmed `access-control-allow-origin: *`.
+- Removed the plain `<script src="...">` tag entirely. Changed the page's
+  own script tag to `<script type="module">` and added
+  `import Keycloak from "https://cdn.jsdelivr.net/npm/keycloak-js@26.0.7/lib/keycloak.js";`
+  as its first line, so `Keycloak` is a real, correctly-scoped binding
+  rather than an assumed global.
+- Added a top-level `try/catch` around `main()` that renders any startup
+  failure directly into the page body, so a future failure of this kind
+  is visible without opening the browser console.
+- Rebuilt and restarted the `app` container (`docker compose up -d
+  --build app`) so the corrected static file was actually served — the
+  file is baked into the image via `COPY . .` in `app/Dockerfile`, not
+  volume-mounted, so an image rebuild is required after any change to it.
+
+**Why this approach:** Both the wrong path and the module-format mismatch
+were confirmed by directly fetching and inspecting the real CDN response
+(status code, then actual file content) rather than guessing from
+training-data recall of "how keycloak-js CDN usage typically looks" —
+that recall was in fact what produced the wrong URL and the wrong loading
+technique in the first place.
+
+**Outcome:** Fix applied and the app container rebuilt. The user
+subsequently proceeded to interactive chat testing without reporting the
+redirect issue again, consistent with the fix working — this class of bug
+(browser-executed JS) could only be conclusively verified by an actual
+browser, not by any `curl`-based check.

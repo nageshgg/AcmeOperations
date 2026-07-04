@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acme Operations Assistant</title>
+<style>
+  :root {
+    --border: #d8dee4;
+    --bg: #f6f8fa;
+    --accent: #2451b0;
+    --danger: #b02a2a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: #1f2328;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1.25rem;
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 1.05rem; margin: 0; }
+  #identity { display: flex; align-items: center; gap: 0.75rem; }
+  #role-badge {
+    background: var(--accent);
+    color: #fff;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+  }
+  #logout-btn {
+    border: 1px solid var(--border);
+    background: #fff;
+    padding: 0.3rem 0.7rem;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  main {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  #chat-panel {
+    flex: 3;
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    min-width: 0;
+  }
+  #conversation {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    min-height: 50vh;
+    max-height: 65vh;
+  }
+  .msg {
+    padding: 0.5rem 0.8rem;
+    border-radius: 8px;
+    max-width: 80%;
+    white-space: pre-wrap;
+    line-height: 1.4;
+  }
+  .msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
+  .msg.agent { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); }
+  .msg.denied { align-self: flex-start; background: #fdecea; border: 1px solid var(--danger); color: var(--danger); }
+  #input-row {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border-top: 1px solid var(--border);
+  }
+  #message-input {
+    flex: 1;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.95rem;
+  }
+  #send-btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  #send-btn:disabled { opacity: 0.5; cursor: default; }
+  #activity-panel {
+    flex: 2;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    max-height: 78vh;
+    overflow-y: auto;
+  }
+  #activity-panel h2 {
+    font-size: 0.9rem;
+    margin: 0 0 0.5rem 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  #activity-list { display: flex; flex-direction: column; gap: 0.6rem; }
+  .activity-entry {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.6rem;
+    font-size: 0.82rem;
+  }
+  .activity-entry .turn-label { font-weight: 600; margin-bottom: 0.3rem; }
+  .activity-entry ul { margin: 0; padding-left: 1.1rem; }
+  .activity-entry .no-tools { color: #6e7781; font-style: italic; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Acme Operations Assistant</h1>
+  <div id="identity">
+    <span id="role-badge" hidden></span>
+    <button id="logout-btn" hidden>Log out</button>
+  </div>
+</header>
+
+<main>
+  <section id="chat-panel">
+    <div id="conversation"></div>
+    <div id="input-row">
+      <input id="message-input" type="text" placeholder="Ask about a customer or issue..." disabled>
+      <button id="send-btn" disabled>Send</button>
+    </div>
+  </section>
+
+  <section id="activity-panel">
+    <h2 id="activity-toggle">Agent activity &#9660;</h2>
+    <div id="activity-list"></div>
+  </section>
+</main>
+
+<script type="module">
+// keycloak-js@26+ ships as an ES module only (no UMD/global build), so it
+// must be imported here rather than loaded via a plain <script src> tag --
+// the latter throws a parse error on `export default` and silently leaves
+// `Keycloak` undefined, which breaks the login redirect with no visible
+// error in the page itself (only in the browser console).
+import Keycloak from "https://cdn.jsdelivr.net/npm/keycloak-js@26.0.7/lib/keycloak.js";
+
+// Conversation id returned by the first /chat response and reused on every
+// following turn so the agent (via Redis-backed session_store) keeps
+// context. Stays null until the first successful reply.
+let conversationId = null;
+
+// The single Keycloak adapter instance used for the whole page's lifetime.
+let keycloak = null;
+
+/**
+ * Boots the Keycloak adapter using Authorization Code + PKCE (S256), and
+ * redirects to the Keycloak login page if the user isn't already
+ * authenticated. Resolves only once a valid token is available.
+ */
+async function initKeycloak() {
+  keycloak = new Keycloak({
+    url: "http://localhost:8080",
+    realm: "acme-operations",
+    clientId: "acme-app",
+  });
+  await keycloak.init({ onLoad: "login-required", pkceMethod: "S256" });
+  return keycloak;
+}
+
+/**
+ * Refreshes the access token if it's within 30 seconds of expiring.
+ * Called before every API request so a long-idle tab doesn't send a
+ * stale token and get an unnecessary 401.
+ */
+async function ensureFreshToken() {
+  try {
+    await keycloak.updateToken(30);
+  } catch (err) {
+    // Refresh token itself expired or was rejected -- only a fresh login can recover.
+    keycloak.login();
+  }
+}
+
+/**
+ * Fetches the caller's identity from the existing GET /me endpoint and
+ * renders the "logged in as" role badge. Reuses the backend's own
+ * role-resolution logic instead of re-deriving roles from the token
+ * client-side.
+ */
+async function renderIdentityBadge() {
+  const res = await fetch("/me", {
+    headers: { Authorization: "Bearer " + keycloak.token },
+  });
+  const data = await res.json();
+  const badge = document.getElementById("role-badge");
+  const roleText = data.roles && data.roles.length ? data.roles.join(", ") : "no role";
+  badge.textContent = "Logged in as: " + data.username + " (" + roleText + ")";
+  badge.hidden = false;
+  document.getElementById("logout-btn").hidden = false;
+}
+
+/**
+ * Appends one chat bubble to the conversation view.
+ * `kind` is one of "user", "agent", or "denied" (each has its own style).
+ */
+function appendMessage(kind, text) {
+  const div = document.createElement("div");
+  div.className = "msg " + kind;
+  div.textContent = text;
+  const conversation = document.getElementById("conversation");
+  conversation.appendChild(div);
+  conversation.scrollTop = conversation.scrollHeight;
+}
+
+/**
+ * Appends one turn's tool-call trace to the "Agent activity" panel: the
+ * tool name and its latency (duration_ms) for every tool the agent called
+ * while producing that reply. Shows a placeholder line when no tools were
+ * called (e.g. the model answered directly).
+ */
+function appendActivity(toolCalls) {
+  const list = document.getElementById("activity-list");
+  const entry = document.createElement("div");
+  entry.className = "activity-entry";
+
+  const label = document.createElement("div");
+  label.className = "turn-label";
+  label.textContent = "Turn " + (list.children.length + 1);
+  entry.appendChild(label);
+
+  if (!toolCalls || toolCalls.length === 0) {
+    const none = document.createElement("div");
+    none.className = "no-tools";
+    none.textContent = "No tools called";
+    entry.appendChild(none);
+  } else {
+    const ul = document.createElement("ul");
+    toolCalls.forEach((call) => {
+      const li = document.createElement("li");
+      const ms = typeof call.duration_ms === "number" ? call.duration_ms + " ms" : "n/a";
+      li.textContent = call.tool + " (" + ms + ")";
+      ul.appendChild(li);
+    });
+    entry.appendChild(ul);
+  }
+
+  list.appendChild(entry);
+  document.getElementById("activity-panel").scrollTop = document.getElementById("activity-panel").scrollHeight;
+}
+
+/**
+ * Sends the current input box's text to POST /chat with a bearer token,
+ * renders the agent's reply (or a clear denial message on 403), and
+ * updates the Agent activity panel from the response's tool_calls trace.
+ */
+async function sendMessage() {
+  const input = document.getElementById("message-input");
+  const text = input.value.trim();
+  if (!text) return;
+
+  appendMessage("user", text);
+  input.value = "";
+  document.getElementById("send-btn").disabled = true;
+  input.disabled = true;
+
+  await ensureFreshToken();
+
+  try {
+    const res = await fetch("/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + keycloak.token,
+      },
+      body: JSON.stringify({ message: text, conversation_id: conversationId }),
+    });
+
+    if (res.status === 403) {
+      appendMessage("denied", "Your role does not permit this action.");
+      return;
+    }
+
+    const data = await res.json();
+    conversationId = data.conversation_id || conversationId;
+    appendMessage("agent", data.reply || "(no response)");
+    appendActivity(data.tool_calls);
+  } catch (err) {
+    appendMessage("denied", "Something went wrong reaching the assistant: " + err.message);
+  } finally {
+    document.getElementById("send-btn").disabled = false;
+    input.disabled = false;
+    input.focus();
+  }
+}
+
+/**
+ * Collapses/expands the Agent activity panel's list so it doesn't crowd
+ * the chat on smaller screens.
+ */
+function toggleActivityPanel() {
+  const list = document.getElementById("activity-list");
+  const toggle = document.getElementById("activity-toggle");
+  const collapsed = list.style.display === "none";
+  list.style.display = collapsed ? "flex" : "none";
+  toggle.innerHTML = "Agent activity " + (collapsed ? "&#9660;" : "&#9654;");
+}
+
+/**
+ * Wires up the send button, Enter-to-send, logout, and the activity
+ * panel's collapse toggle. Called once, after login succeeds.
+ */
+function wireUpControls() {
+  document.getElementById("send-btn").addEventListener("click", sendMessage);
+  document.getElementById("message-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendMessage();
+  });
+  document.getElementById("logout-btn").addEventListener("click", () => keycloak.logout());
+  document.getElementById("activity-toggle").addEventListener("click", toggleActivityPanel);
+
+  document.getElementById("message-input").disabled = false;
+  document.getElementById("send-btn").disabled = false;
+  document.getElementById("message-input").focus();
+}
+
+/**
+ * Entry point: logs the user in, shows their identity, and enables the
+ * chat UI. Runs once when the page loads.
+ */
+async function main() {
+  try {
+    await initKeycloak();
+    await renderIdentityBadge();
+    wireUpControls();
+  } catch (err) {
+    // Surface startup failures (Keycloak unreachable, bad realm config,
+    // etc.) directly in the page instead of only in the browser console,
+    // since a failure here otherwise leaves a blank, seemingly-frozen page.
+    document.body.innerHTML =
+      '<p style="padding:2rem;color:#b02a2a;">Failed to start: ' + err.message + "</p>";
+  }
+}
+
+main();
+</script>
+</body>
+</html>

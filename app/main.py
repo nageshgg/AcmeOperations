@@ -21,8 +21,10 @@ start/end/error log with latency.
 import logging
 import time
 import uuid
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 import observability
@@ -34,6 +36,21 @@ from skills.escalation_summary import generate_escalation_summary
 observability.configure_logging()
 
 app = FastAPI(title="Acme Operations API")
+
+# Read once at import time -- this is a small, static file, so there's no
+# need to hit disk on every request to "/".
+_INDEX_HTML = (Path(__file__).parent / "static" / "index.html").read_text()
+
+
+@app.get("/", response_class=HTMLResponse)
+def index() -> str:
+    """Serves the single-page frontend (login, chat, agent activity panel).
+
+    This is a plain `GET /` route rather than a `StaticFiles` mount, so it
+    can't shadow any existing API route (`/chat`, `/me`, etc.) -- it only
+    ever matches the exact root path.
+    """
+    return _INDEX_HTML
 
 
 @app.middleware("http")
