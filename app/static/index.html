@@ -6,42 +6,63 @@
 <title>Acme Operations Assistant</title>
 <style>
   :root {
-    --border: #d8dee4;
-    --bg: #f6f8fa;
-    --accent: #2451b0;
-    --danger: #b02a2a;
+    --border: #e1e4e8;
+    --bg: #eef1f8;
+    --surface: #ffffff;
+    --accent: #4f46e5;
+    --accent-2: #06b6d4;
+    --text: #1f2328;
+    --muted: #6e7781;
+    --danger: #c0362c;
+    --danger-bg: #fdecea;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    background: var(--bg);
-    color: #1f2328;
+    background: linear-gradient(180deg, var(--bg) 0%, #e4e9f7 100%);
+    color: var(--text);
+    min-height: 100vh;
   }
   header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.75rem 1.25rem;
-    background: #fff;
-    border-bottom: 1px solid var(--border);
-  }
-  header h1 { font-size: 1.05rem; margin: 0; }
-  #identity { display: flex; align-items: center; gap: 0.75rem; }
-  #role-badge {
-    background: var(--accent);
+    padding: 0.85rem 1.25rem;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%);
     color: #fff;
-    padding: 0.2rem 0.6rem;
+    box-shadow: 0 2px 8px rgba(79, 70, 229, 0.25);
+  }
+  header h1 { font-size: 1.05rem; margin: 0; font-weight: 600; }
+  #identity { display: flex; align-items: center; gap: 0.75rem; }
+  #avatar {
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.85rem;
+  }
+  #role-badge {
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+    padding: 0.25rem 0.7rem;
     border-radius: 999px;
-    font-size: 0.8rem;
+    font-size: 0.85rem;
   }
   #logout-btn {
-    border: 1px solid var(--border);
-    background: #fff;
-    padding: 0.3rem 0.7rem;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    background: transparent;
+    color: #fff;
+    padding: 0.3rem 0.75rem;
     border-radius: 6px;
     cursor: pointer;
+    transition: background 0.15s;
   }
+  #logout-btn:hover { background: rgba(255, 255, 255, 0.15); }
   main {
     display: flex;
     gap: 1rem;
@@ -53,11 +74,12 @@
     flex: 3;
     display: flex;
     flex-direction: column;
-    background: #fff;
+    background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 12px;
     overflow: hidden;
     min-width: 0;
+    box-shadow: 0 1px 3px rgba(31, 35, 40, 0.06);
   }
   #conversation {
     flex: 1;
@@ -70,62 +92,113 @@
     max-height: 65vh;
   }
   .msg {
-    padding: 0.5rem 0.8rem;
-    border-radius: 8px;
+    padding: 0.55rem 0.9rem;
+    border-radius: 12px;
     max-width: 80%;
     white-space: pre-wrap;
-    line-height: 1.4;
+    line-height: 1.45;
   }
-  .msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
-  .msg.agent { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); }
-  .msg.denied { align-self: flex-start; background: #fdecea; border: 1px solid var(--danger); color: var(--danger); }
+  .msg.user {
+    align-self: flex-end;
+    background: linear-gradient(135deg, var(--accent) 0%, #7c3aed 100%);
+    color: #fff;
+    border-bottom-right-radius: 3px;
+  }
+  .msg.agent {
+    align-self: flex-start;
+    background: #f3f5fb;
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 3px;
+  }
+  .msg.denied {
+    align-self: flex-start;
+    background: var(--danger-bg);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+  }
+  .msg.loading {
+    align-self: flex-start;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0.7rem 1rem;
+  }
+  .msg.loading .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.4;
+    animation: bounce 1.2s infinite ease-in-out;
+  }
+  .msg.loading .dot:nth-child(2) { animation-delay: 0.2s; }
+  .msg.loading .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes bounce {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.35; }
+    40% { transform: scale(1); opacity: 1; }
+  }
   #input-row {
     display: flex;
     gap: 0.5rem;
     padding: 0.75rem;
     border-top: 1px solid var(--border);
+    background: #fafbfd;
   }
   #message-input {
     flex: 1;
-    padding: 0.5rem 0.7rem;
+    padding: 0.55rem 0.8rem;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 8px;
     font-size: 0.95rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  #message-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
   }
   #send-btn {
-    padding: 0.5rem 1rem;
+    padding: 0.55rem 1.2rem;
     border: none;
-    background: var(--accent);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
     color: #fff;
-    border-radius: 6px;
+    border-radius: 8px;
     cursor: pointer;
+    font-weight: 600;
+    transition: opacity 0.15s, transform 0.1s;
   }
+  #send-btn:hover:not(:disabled) { opacity: 0.9; }
+  #send-btn:active:not(:disabled) { transform: scale(0.97); }
   #send-btn:disabled { opacity: 0.5; cursor: default; }
   #activity-panel {
     flex: 2;
-    background: #fff;
+    background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.75rem;
+    border-radius: 12px;
+    padding: 0.85rem;
     max-height: 78vh;
     overflow-y: auto;
+    box-shadow: 0 1px 3px rgba(31, 35, 40, 0.06);
   }
   #activity-panel h2 {
     font-size: 0.9rem;
-    margin: 0 0 0.5rem 0;
+    margin: 0 0 0.6rem 0;
     cursor: pointer;
     user-select: none;
+    color: var(--accent);
   }
   #activity-list { display: flex; flex-direction: column; gap: 0.6rem; }
   .activity-entry {
     border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-2);
     border-radius: 6px;
     padding: 0.5rem 0.6rem;
     font-size: 0.82rem;
+    background: #fafbfd;
   }
-  .activity-entry .turn-label { font-weight: 600; margin-bottom: 0.3rem; }
+  .activity-entry .turn-label { font-weight: 600; margin-bottom: 0.3rem; color: var(--accent); }
   .activity-entry ul { margin: 0; padding-left: 1.1rem; }
-  .activity-entry .no-tools { color: #6e7781; font-style: italic; }
+  .activity-entry .no-tools { color: var(--muted); font-style: italic; }
 </style>
 </head>
 <body>
@@ -133,6 +206,7 @@
 <header>
   <h1>Acme Operations Assistant</h1>
   <div id="identity">
+    <span id="avatar" hidden></span>
     <span id="role-badge" hidden></span>
     <button id="logout-btn" hidden>Log out</button>
   </div>
@@ -200,19 +274,26 @@ async function ensureFreshToken() {
 
 /**
  * Fetches the caller's identity from the existing GET /me endpoint and
- * renders the "logged in as" role badge. Reuses the backend's own
- * role-resolution logic instead of re-deriving roles from the token
- * client-side.
+ * renders the username badge (and an avatar initial) -- deliberately
+ * shows just who's logged in, not what they're permitted to do, since
+ * role/capability isn't something the UI needs to surface to the user.
+ * Reuses the backend's own identity resolution instead of re-deriving
+ * anything from the token client-side.
  */
 async function renderIdentityBadge() {
   const res = await fetch("/me", {
     headers: { Authorization: "Bearer " + keycloak.token },
   });
   const data = await res.json();
+
+  const avatar = document.getElementById("avatar");
+  avatar.textContent = (data.username || "?").charAt(0).toUpperCase();
+  avatar.hidden = false;
+
   const badge = document.getElementById("role-badge");
-  const roleText = data.roles && data.roles.length ? data.roles.join(", ") : "no role";
-  badge.textContent = "Logged in as: " + data.username + " (" + roleText + ")";
+  badge.textContent = data.username;
   badge.hidden = false;
+
   document.getElementById("logout-btn").hidden = false;
 }
 
@@ -227,6 +308,27 @@ function appendMessage(kind, text) {
   const conversation = document.getElementById("conversation");
   conversation.appendChild(div);
   conversation.scrollTop = conversation.scrollHeight;
+}
+
+/**
+ * Shows a bouncing-dots "the agent is working" bubble while a /chat
+ * request is in flight, so a multi-second Gemini round trip (plus any
+ * tool calls) doesn't look like the page has frozen.
+ */
+function appendLoading() {
+  const div = document.createElement("div");
+  div.className = "msg agent loading";
+  div.id = "loading-indicator";
+  div.innerHTML = "<span class=\"dot\"></span><span class=\"dot\"></span><span class=\"dot\"></span>";
+  const conversation = document.getElementById("conversation");
+  conversation.appendChild(div);
+  conversation.scrollTop = conversation.scrollHeight;
+}
+
+/** Removes the loading bubble, if present, once a reply (or error) arrives. */
+function removeLoading() {
+  const el = document.getElementById("loading-indicator");
+  if (el) el.remove();
 }
 
 /**
@@ -279,6 +381,7 @@ async function sendMessage() {
   input.value = "";
   document.getElementById("send-btn").disabled = true;
   input.disabled = true;
+  appendLoading();
 
   await ensureFreshToken();
 
@@ -292,6 +395,8 @@ async function sendMessage() {
       body: JSON.stringify({ message: text, conversation_id: conversationId }),
     });
 
+    removeLoading();
+
     if (res.status === 403) {
       appendMessage("denied", "Your role does not permit this action.");
       return;
@@ -302,6 +407,7 @@ async function sendMessage() {
     appendMessage("agent", data.reply || "(no response)");
     appendActivity(data.tool_calls);
   } catch (err) {
+    removeLoading();
     appendMessage("denied", "Something went wrong reaching the assistant: " + err.message);
   } finally {
     document.getElementById("send-btn").disabled = false;
