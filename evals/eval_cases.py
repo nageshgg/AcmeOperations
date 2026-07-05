@@ -1,6 +1,6 @@
 """The eval question set for Acme Operations' agent.
 
-8 cases (within the brief's 5-10 range), each targeting at least one of the
+10 cases (within the brief's 5-10 range), each targeting at least one of the
 four required measurement dimensions:
   (a) correct tool selection
   (b) responses grounded in database results
@@ -57,9 +57,40 @@ EVAL_CASES: list[dict] = [
         "grounding_keywords_all": ["connection pool", "sev1"],
     },
     {
-        "id": "support_write_allowed",
-        "dimensions": ["rbac", "next_action_reasonableness"],
+        "id": "support_write_denied_next_action",
+        "dimensions": ["rbac"],
         "role": "support_user",
+        "endpoint": "/chat",
+        "payload": {
+            "message": (
+                "Create a next action for issue 11 recommending we approve "
+                "the rate limit increase for their integration."
+            )
+        },
+        "expected_tools": ["create_next_action"],
+        "expect_rbac_denied_tool": "create_next_action",
+        "grounding_keywords_all": [],
+    },
+    {
+        "id": "support_update_issue_status_allowed",
+        "dimensions": ["rbac", "tool_selection"],
+        "role": "support_user",
+        "endpoint": "/chat",
+        "payload": {
+            "message": (
+                "Mark issue 11 as in_progress, with a note that the rate "
+                "limit increase has been approved and is pending "
+                "deployment."
+            )
+        },
+        "expected_tools": ["update_issue_status"],
+        "expect_rbac_denied_tool": None,
+        "grounding_keywords_all": [],
+    },
+    {
+        "id": "admin_write_next_action_allowed",
+        "dimensions": ["rbac", "next_action_reasonableness"],
+        "role": "admin",
         "endpoint": "/chat",
         "payload": {
             "message": (

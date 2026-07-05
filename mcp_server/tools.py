@@ -105,10 +105,54 @@ def summarize_issue_history(issue_id: int) -> dict:
     return {"issue": _row_safe(issues[0]), "updates": [_row_safe(u) for u in updates]}
 
 
+VALID_ISSUE_STATUSES = {"open", "in_progress", "resolved", "closed"}
+
+
+def update_issue_status(
+    issue_id: int, new_status: str, note: str, updated_by: str
+) -> dict:
+    """Tool 4: update a specific issue's status and append a note to its
+    history explaining the change.
+
+    `updated_by` is expected to be the caller's *verified* username, passed
+    in by the app-layer MCP client -- never a value the LLM itself supplied,
+    same guarantee as `create_next_action`'s `created_by` below.
+    """
+    if not query("SELECT id FROM issues WHERE id = %s", (issue_id,)):
+        return {"error": f"No issue found with id {issue_id}"}
+    if new_status not in VALID_ISSUE_STATUSES:
+        return {
+            "error": (
+                f"Invalid status '{new_status}'; must be one of "
+                f"{sorted(VALID_ISSUE_STATUSES)}"
+            )
+        }
+    issue_rows = execute(
+        """
+        UPDATE issues
+        SET status = %s,
+            updated_at = now(),
+            closed_at = CASE WHEN %s IN ('resolved', 'closed') THEN now() ELSE closed_at END
+        WHERE id = %s
+        RETURNING id, customer_id, title, status, priority, created_at, updated_at, closed_at
+        """,
+        (new_status, new_status, issue_id),
+    )
+    update_rows = execute(
+        """
+        INSERT INTO issue_updates (issue_id, author, update_text)
+        VALUES (%s, %s, %s)
+        RETURNING id, issue_id, author, update_text, created_at
+        """,
+        (issue_id, updated_by, note),
+    )
+    return {"issue": _row_safe(issue_rows[0]), "update": _row_safe(update_rows[0])}
+
+
 def create_next_action(
     issue_id: int, recommended_action: str, rationale: str, created_by: str
 ) -> dict:
-    """Tool 4: record a recommended next action for a specific issue.
+    """Tool 5: record a recommended next action for a specific issue.
 
     `created_by` is expected to be the caller's *verified* username, passed
     in by the app-layer MCP client -- never a value the LLM itself supplied.

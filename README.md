@@ -14,7 +14,7 @@ auditable, observable request path.
 | Requirement | Where |
 |---|---|
 | Agent dynamically reasons about tool calls (not prompt-only) | `app/agent.py` — Gemini Interactions API tool-calling loop |
-| 4 required tools | `mcp_server/tools.py` (`get_customer_profile`, `get_open_issues_for_customer`, `summarize_issue_history`, `create_next_action`) |
+| 5 tools | `mcp_server/tools.py` (`get_customer_profile`, `get_open_issues_for_customer`, `summarize_issue_history`, `update_issue_status`, `create_next_action`) |
 | Custom MCP server, own container | `mcp_server/` — see [MCP: why it's used here](#mcp-why-its-used-here) |
 | Reusable Skill | `app/skills/escalation_summary.py` — [Customer Escalation Summary Skill](#customer-escalation-summary-skill) |
 | Keycloak auth (not mocked), RBAC with exactly 3 roles | `keycloak/realm-export.json`, `app/auth.py`, `app/rbac_policy.py` |
@@ -72,9 +72,9 @@ docker compose ps   # postgres, redis, keycloak, mcp-server, app should all say 
 
 | Username | Password | Role | Can do |
 |---|---|---|---|
-| `sales_user` | `SalesUser123!` | `sales_user` | Read customers/issues only |
-| `support_user` | `SupportUser123!` | `support_user` | Read + create next actions |
-| `admin` | `AdminUser123!` | `admin` | Full access |
+| `sales_user` | `SalesUser123!` | `sales_user` | Read-only: customer profiles, open issues, issue history |
+| `support_user` | `SupportUser123!` | `support_user` | Everything sales_user can do, plus updating an issue's status/history (`update_issue_status`) |
+| `admin` | `AdminUser123!` | `admin` | Full access, including the only role that may record a recommended next action (`create_next_action`) |
 
 **Try it:**
 ```bash
@@ -112,7 +112,7 @@ graph TD
     subgraph Compose["docker compose (single 'docker compose up')"]
         Keycloak["Keycloak<br/>realm: acme-operations<br/>roles: sales_user / support_user / admin"]
         App["app (FastAPI)<br/>/ (web UI) · /chat · /skills/escalation-summary<br/>agent.py + auth.py + rbac_policy.py"]
-        MCP["mcp-server (FastMCP)<br/>streamable-http :8001<br/>4 tools, owns Postgres queries"]
+        MCP["mcp-server (FastMCP)<br/>streamable-http :8001<br/>5 tools, owns Postgres queries"]
         Postgres[("PostgreSQL<br/>customers, issues, issue_updates,<br/>next_actions, users")]
         Redis[("Redis<br/>conversation_id → interaction_id<br/>TTL 30 min")]
     end
@@ -200,12 +200,13 @@ it.
 **How it separates tool definitions from core agent logic.** Concretely,
 in this codebase:
 
-- **`mcp_server/`** owns tool *definitions and execution* — the four
+- **`mcp_server/`** owns tool *definitions and execution* — the five
   Acme-specific tools (`get_customer_profile`, `get_open_issues_for_customer`,
-  `summarize_issue_history`, `create_next_action`), their JSON-schema
-  parameter declarations (derived automatically by FastMCP from Python type
-  hints), and the Postgres queries that implement them. This container has
-  no idea an LLM exists, what Keycloak is, or what "RBAC" means.
+  `summarize_issue_history`, `update_issue_status`, `create_next_action`),
+  their JSON-schema parameter declarations (derived automatically by
+  FastMCP from Python type hints), and the Postgres queries that implement
+  them. This container has no idea an LLM exists, what Keycloak is, or
+  what "RBAC" means.
 - **`app/agent.py`** owns *core agent logic* — the reasoning loop that
   calls Gemini, decides when a tool call is needed, and feeds results back
   until a final answer is produced. It has no idea how any tool is
@@ -219,13 +220,14 @@ in this codebase:
   `app` container (where the bearer token is validated) — `mcp_server` has
   no concept of who's calling it. So RBAC is enforced one layer above the
   MCP boundary, immediately before a tool call is dispatched, rather than
-  inside the tool implementations themselves. The one place this leaks
-  across the boundary is `create_next_action`'s `created_by` field: it's a
-  real, required parameter on the MCP tool's schema (the tool genuinely
-  needs to know who requested the action), but `app/mcp_client.py`
-  explicitly hides it from what the model is shown and injects the
-  caller's real username immediately before the MCP call — so the LLM
-  never sees, and can never forge, who a next action is attributed to.
+  inside the tool implementations themselves. The two places this leaks
+  across the boundary are `create_next_action`'s `created_by` field and
+  `update_issue_status`'s `updated_by` field: both are real, required
+  parameters on their MCP tool schemas (the tools genuinely need to know
+  who requested the action), but `app/mcp_client.py` explicitly hides them
+  from what the model is shown and injects the caller's real username
+  immediately before the MCP call — so the LLM never sees, and can never
+  forge, who a write is attributed to.
 
 This means the transport in the middle — the MCP protocol itself — is
 exactly the seam the brief describes: everything on the `mcp_server/` side
@@ -350,14 +352,14 @@ output is one JSON object per line):
 
 ## Evaluation
 
-`evals/eval_cases.py` defines 8 cases (within the brief's 5-10 range)
+`evals/eval_cases.py` defines 10 cases (within the brief's 5-10 range)
 against a live stack, covering all four required dimensions:
 
 | Dimension | How it's checked |
 |---|---|
 | (a) Correct tool selection | Mechanical — the actual `tool_calls` trace the API returns is checked against each case's expected tool(s), not inferred from reply text |
 | (b) Grounded responses | Mechanical where possible: either a keyword check against known seed-data facts, or (preferred, more robust) a direct check on a tool's own structured result — see the eval scoring lesson in `TROUBLESHOOTING_LOG.md`, Step 8, for why the latter was added after keyword checks proved fragile against paraphrasing |
-| (c) RBAC respected | Mechanical — verifies the one write-capable tool (`create_next_action`) is never successfully invoked by `sales_user`, whether the model attempts it and is denied server-side, or self-declines without attempting (both are valid — the property under test is "did an unauthorized write ever happen") |
+| (c) RBAC respected | Mechanical — verifies each of the two write-capable tools is only ever successfully invoked by a role the current policy allows: `create_next_action` only by `admin` (denied for both `sales_user` and, as of the updated role split, `support_user`), and `update_issue_status` only by `support_user`/`admin` (denied for `sales_user`) — whether the model attempts a denied call and is rejected server-side, or self-declines without attempting (both are valid — the property under test is "did an unauthorized write ever happen") |
 | (d) Reasonableness of next actions | **Not mechanically scored.** The eval report captures the actual recommendation text for human judgment — a keyword match cannot responsibly stand in for that call, and pretending otherwise would be a worse eval than admitting the limitation |
 
 **Run it:** `docker compose up -d --build`, then `python3 evals/run_evals.py`
@@ -365,16 +367,21 @@ against a live stack, covering all four required dimensions:
 and `evals/results.md` (human-readable, with a summary table and full
 per-case detail including response excerpts).
 
-**Latest run: 8/8 scored cases passed.** See `evals/results.md` for the full
-report. Getting to 8/8 took real iteration — documented in
-`TROUBLESHOOTING_LOG.md` (Step 8) rather than smoothed over: a Step 5
-exception-handling bug that had silently never worked, a real free-tier
-quota wall, and two genuine cases of model non-determinism across runs
-(the model sometimes self-declines an unauthorized action without
-attempting it, and sometimes asks a clarifying question instead of
-autonomously chaining a tool lookup). Both are reasonable agent behaviors,
-not defects — but worth being explicit that a single passing eval run is
-not a claim of full determinism.
+**Role split updated:** the eval set was revised alongside a role-policy
+change — `create_next_action` is now `admin`-only, and a new
+`update_issue_status` tool (support_user + admin) covers support's
+"update issues" capability. `evals/results.md` reflects whatever the most
+recent `run_evals.py` run against a live stack produced; re-run it after
+this change to get current pass/fail numbers rather than trusting a stale
+report. Earlier iteration to get the previous case set green is documented
+in `TROUBLESHOOTING_LOG.md` (Step 8): a Step 5 exception-handling bug that
+had silently never worked, a real free-tier quota wall, and two genuine
+cases of model non-determinism across runs (the model sometimes
+self-declines an unauthorized action without attempting it, and sometimes
+asks a clarifying question instead of autonomously chaining a tool
+lookup). Both are reasonable agent behaviors, not defects — but worth
+being explicit that a single passing eval run is not a claim of full
+determinism.
 
 ## Proposed bonus (not built — for approval)
 

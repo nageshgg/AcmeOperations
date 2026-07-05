@@ -10,13 +10,18 @@ idea who's calling it, and the agent loop has no idea what a tool does --
 each container only knows the part of the picture it needs to.
 """
 
-# create_next_action is the one write operation among the four required
-# tools, and is withheld from sales_user (explicitly read-only per the brief).
+# sales_user: read-only -- can look up customers/issues/history but change
+# nothing.
+# support_user: read-only tools plus update_issue_status -- can update an
+# issue's status/history in addition to everything sales_user can do.
+# admin: full access, including create_next_action -- the only role that
+# may record a recommended next action.
 TOOL_ROLE_POLICY: dict[str, set[str]] = {
     "get_customer_profile": {"sales_user", "support_user", "admin"},
     "get_open_issues_for_customer": {"sales_user", "support_user", "admin"},
     "summarize_issue_history": {"sales_user", "support_user", "admin"},
-    "create_next_action": {"support_user", "admin"},
+    "update_issue_status": {"support_user", "admin"},
+    "create_next_action": {"admin"},
 }
 
 

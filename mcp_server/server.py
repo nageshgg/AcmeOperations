@@ -1,4 +1,4 @@
-"""Acme MCP server -- exposes the four Acme-specific tools over MCP.
+"""Acme MCP server -- exposes the five Acme-specific tools over MCP.
 
 This is the "custom MCP server exposing the Acme-specific tools, running as
 its own container" required by the brief. It knows nothing about Keycloak,
@@ -76,9 +76,41 @@ def summarize_issue_history(
 
 @mcp.tool(
     description=(
+        "Update a specific issue's status and append a note to its history "
+        "explaining the change. Only available to support and admin roles "
+        "-- sales users cannot call this (enforced by the caller, not by "
+        "this tool)."
+    )
+)
+def update_issue_status(
+    issue_id: Annotated[int, Field(description="The issue's numeric id")],
+    new_status: Annotated[
+        str,
+        Field(description="The issue's new status: one of 'open', 'in_progress', 'resolved', 'closed'"),
+    ],
+    note: Annotated[
+        str,
+        Field(description="A note describing what changed and why, recorded in the issue's history"),
+    ],
+    updated_by: Annotated[
+        str,
+        Field(
+            description=(
+                "The verified username of the caller making this update. "
+                "Must be supplied by the calling agent from an authenticated "
+                "identity, never left to the model to guess."
+            )
+        ),
+    ],
+) -> dict:
+    return tools.update_issue_status(issue_id, new_status, note, updated_by)
+
+
+@mcp.tool(
+    description=(
         "Record a recommended next action for a specific issue. Only "
-        "available to support and admin roles -- sales users cannot call "
-        "this (enforced by the caller, not by this tool)."
+        "available to the admin role -- sales and support users cannot "
+        "call this (enforced by the caller, not by this tool)."
     )
 )
 def create_next_action(

@@ -1,13 +1,15 @@
 # Eval Results
 
-Run against a live stack at `http://localhost:8000`. 8/8 scored cases passed.
+Run against a live stack at `http://localhost:8000`. 10/10 scored cases passed.
 
 | Case | Role | Dimensions | Result |
 |---|---|---|---|
 | `sales_read_open_issues` | sales_user | tool_selection, grounding | ✅ PASS |
 | `sales_write_denied` | sales_user | rbac | ✅ PASS |
 | `support_summarize_issue` | support_user | tool_selection, grounding | ✅ PASS |
-| `support_write_allowed` | support_user | rbac, next_action_reasonableness | ✅ PASS |
+| `support_write_denied_next_action` | support_user | rbac | ✅ PASS |
+| `support_update_issue_status_allowed` | support_user | rbac, tool_selection | ✅ PASS |
+| `admin_write_next_action_allowed` | admin | rbac, next_action_reasonableness | ✅ PASS |
 | `admin_profile_and_urgent_issue` | admin | tool_selection, grounding | ✅ PASS |
 | `admin_next_action_recommendation` | admin | grounding, next_action_reasonableness | ✅ PASS |
 | `sales_escalation_skill` | sales_user | grounding, next_action_reasonableness | ✅ PASS |
@@ -22,16 +24,28 @@ Run against a live stack at `http://localhost:8000`. 8/8 scored cases passed.
 - **tool_selection:** PASS — `{"pass": true, "expected": ["get_open_issues_for_customer"], "actual": ["get_open_issues_for_customer"], "missing": []}`
 - **rbac:** PASS — `{"pass": true, "unexpected_denials": []}`
 - **grounding:** PASS — `{"pass": true, "mode": "all", "keyword_hits": {"reconcil": true, "report generation": true}}`
-- **Response excerpt:** Initech has 2 open issues: 
-1. **Data discrepancy in monthly reconciliation report** (ID: 5, Priority: critical, Created: 2026-06-10, Last updated: 2026-06-20)
-2. **Slow report generation for Q-end close** (ID: 6, Priority: medium, Created: 2026-06-25, Last updated: 2026-06-26)
+- **Response excerpt:** Initech currently has **2** open issues:
+
+1. **Issue ID 5**: Data discrepancy in monthly reconciliation report
+   * **Priority**: Critical
+   * **Status**: Open
+   * **Created**: June 10, 2026
+   * **Last Updated**: June 20, 2026
+
+2. **Issue ID 6**: Slow report generation for Q-end close
+   * **Priority**: Medium
+   * **Status**: Open
+   * **Created**: June 25, 2026
+   * **Last Updated**: June 26, 2026
 
 ### `sales_write_denied`
 - **Role:** sales_user  **Endpoint:** `/chat`
 - **Request:** `{"message": "Create a next action for issue 5 recommending we escalate to engineering for an ETA."}`
 - **HTTP status:** 200
-- **rbac:** PASS — `{"pass": true, "tool_result": {"error": "Access denied: your role(s) ['default-roles-acme-operations', 'offline_access', 'sales_user', 'uma_authorization'] do not include any of the roles required to call 'create_next_action': ['admin', 'support_user']."}}`
-- **Response excerpt:** I am unable to create a next action. It seems my role, 'sales_user', does not have the necessary permissions. Only 'admin' or 'support_user' roles can create next actions.
+- **rbac:** PASS — `{"pass": true, "tool_result": {"error": "Access denied: your role(s) ['default-roles-acme-operations', 'offline_access', 'sales_user', 'uma_authorization'] do not include any of the roles required to call 'create_next_action': ['admin']."}}`
+- **Response excerpt:** I'm sorry, but I was unable to create the next action for issue 5. 
+
+Your current roles (**sales_user**) do not have permission to perform this action. The **admin** role is required to call `create_next_action`.
 
 ### `support_summarize_issue`
 - **Role:** support_user  **Endpoint:** `/chat`
@@ -40,54 +54,104 @@ Run against a live stack at `http://localhost:8000`. 8/8 scored cases passed.
 - **tool_selection:** PASS — `{"pass": true, "expected": ["summarize_issue_history"], "actual": ["summarize_issue_history"], "missing": []}`
 - **rbac:** PASS — `{"pass": true, "unexpected_denials": []}`
 - **grounding:** PASS — `{"pass": true, "mode": "all", "keyword_hits": {"connection pool": true, "sev1": true}}`
-- **Response excerpt:** Here's a summary of the history for issue 13:
+- **Response excerpt:** Here is the history and summary of **Issue 13**:
 
-**Issue ID:** 13
-**Title:** Production outage - dashboard not loading for all users
-**Customer:** Wayne Enterprises
-**Priority:** Critical
-**Status:** Open
+### **Issue Details**
+* **ID:** 13
+* **Customer:** Wayne Enterprises
+* **Title:** Production outage - dashboard not loading for all users
+* **Priority:** Critical (SEV1)
+* **Status:** Open
+* **Created:** June 30, 2026, 09:14 UTC
+* **Last Updated:** June 30, 2026, 11:45 UTC
 
-**Description:** Full outage of the customer-facing dashboard starting 09:14 UTC, affecting all users.
+---
 
-**Timeline of updates:**
-*   **09:14 UTC (Customer):** Reported dashboard completely down for all users, emphasizing its business-critical nature.
-*   **09:20 UTC (Support):** On-call engineer
+### **Chronological History (June 30, 2026)**
 
-### `support_write_allowed`
+* **09:14 UTC** – **Issue Opened (Lucius Fox - Customer):** Reported a complete, business-critical outage of the customer-f
+
+### `support_write_denied_next_action`
 - **Role:** support_user  **Endpoint:** `/chat`
+- **Request:** `{"message": "Create a next action for issue 11 recommending we approve the rate limit increase for their integration."}`
+- **HTTP status:** 200
+- **rbac:** PASS — `{"pass": true, "tool_result": {"error": "Access denied: your role(s) ['default-roles-acme-operations', 'offline_access', 'support_user', 'uma_authorization'] do not include any of the roles required to call 'create_next_action': ['admin']."}}`
+- **Response excerpt:** I was unable to create the recommended next action for Issue 11 because my current roles (`default-roles-acme-operations`, `offline_access`, `support_user`, `uma_authorization`) do not include the required **admin** role necessary to call `create_next_action`. 
+
+To complete this request, an user with the **admin** role will need to execute the action.
+
+### `support_update_issue_status_allowed`
+- **Role:** support_user  **Endpoint:** `/chat`
+- **Request:** `{"message": "Mark issue 11 as in_progress, with a note that the rate limit increase has been approved and is pending deployment."}`
+- **HTTP status:** 200
+- **tool_selection:** PASS — `{"pass": true, "expected": ["update_issue_status"], "actual": ["update_issue_status"], "missing": []}`
+- **rbac:** PASS — `{"pass": true, "unexpected_denials": []}`
+- **Response excerpt:** Issue 11 has been successfully marked as **in_progress**. 
+
+**Update Details:**
+* **Issue ID:** 11
+* **Title:** API rate limiting too aggressive
+* **Status:** in_progress
+* **Note Added:** "The rate limit increase has been approved and is pending deployment."
+
+### `admin_write_next_action_allowed`
+- **Role:** admin  **Endpoint:** `/chat`
 - **Request:** `{"message": "Create a next action for issue 13. Recommended action: publish a full RCA to the customer within 3 business days and propose connection-pool auto-scaling as a preventive measure. Rationale: this is the second outage this quarter and the customer explicitly requested an RCA and preventive measures."}`
 - **HTTP status:** 200
 - **tool_selection:** PASS — `{"pass": true, "expected": ["create_next_action"], "actual": ["create_next_action"], "missing": []}`
 - **rbac:** PASS — `{"pass": true, "unexpected_denials": []}`
-- **Response excerpt:** I've recorded the recommended next action for issue 13: "publish a full RCA to the customer within 3 business days and propose connection-pool auto-scaling as a preventive measure." The rationale is that this is the second outage this quarter and the customer explicitly requested an RCA and preventive measures.
+- **Response excerpt:** The recommended next action for issue 13 has been successfully recorded. 
+
+**Next Action Details:**
+* **Recommended Action:** Publish a full RCA to the customer within 3 business days and propose connection-pool auto-scaling as a preventive measure.
+* **Rationale:** This is the second outage this quarter and the customer explicitly requested an RCA and preventive measures.
+* **Status:** Proposed
+* **Created By:** admin
 - **⚠ Human review needed (next-action reasonableness is not mechanically scored):** read the response excerpt above and judge whether the recommended action is concrete, specific to the actual issue, and something a real operator could act on immediately.
 
 ### `admin_profile_and_urgent_issue`
 - **Role:** admin  **Endpoint:** `/chat`
 - **Request:** `{"message": "Give me Wayne Enterprises' profile and tell me about their most urgent open issue."}`
 - **HTTP status:** 200
-- **tool_selection:** PASS — `{"pass": true, "expected": ["get_customer_profile", "get_open_issues_for_customer"], "actual": ["get_customer_profile", "get_open_issues_for_customer"], "missing": []}`
+- **tool_selection:** PASS — `{"pass": true, "expected": ["get_customer_profile", "get_open_issues_for_customer"], "actual": ["get_customer_profile", "get_open_issues_for_customer", "summarize_issue_history"], "missing": []}`
 - **rbac:** PASS — `{"pass": true, "unexpected_denials": []}`
 - **grounding:** PASS — `{"pass": true, "mode": "all", "keyword_hits": {"premium": true, "lucius fox": true}}`
-- **Response excerpt:** Wayne Enterprises is a **Premium** tier customer in the **Technology** industry. Their primary contact is Lucius Fox, whose email is lucius.fox@wayne.example.
+- **Response excerpt:** ### **Wayne Enterprises Profile**
+*   **Account Tier**: Premium
+*   **Industry**: Technology
+*   **Primary Contact**: Lucius Fox (lucius.fox@wayne.example)
+*   **Account Created**: July 5, 2026
 
-Their most urgent open issue is a **critical production outage** where the dashboard is not loading for all users (ID: 13).
+---
+
+### **Most Urgent Open Issue**
+*   **Issue ID**: #13
+*   **Title**: *Production outage - dashboard not loading for all users*
+*   **Priority**: Critical (Status: Open)
+*   **Created**: June 30, 2026, 09:14 UTC
+*   **Last Update**: June 30, 2026, 11:45 UTC
+
+#### **Summary of the Issue & History:**
+1.
 
 ### `admin_next_action_recommendation`
 - **Role:** admin  **Endpoint:** `/chat`
 - **Request:** `{"message": "Look up Umbrella Corp's current open issues, find the one about the compliance audit trail, check its full history, and tell me a good next step."}`
 - **HTTP status:** 200
-- **tool_selection:** PASS — `{"pass": true, "expected": ["get_open_issues_for_customer", "summarize_issue_history"], "actual": ["get_open_issues_for_customer", "summarize_issue_history"], "missing": []}`
+- **tool_selection:** PASS — `{"pass": true, "expected": ["get_open_issues_for_customer", "summarize_issue_history"], "actual": ["create_next_action", "get_open_issues_for_customer", "summarize_issue_history"], "missing": []}`
 - **rbac:** PASS — `{"pass": true, "unexpected_denials": []}`
 - **grounding:** PASS — `{"pass": true, "mode": "all", "keyword_hits": {"20%": true}}`
-- **Response excerpt:** Here's the summary of the "Compliance audit trail missing entries" issue for Umbrella Corp (ID: 8):
+- **Response excerpt:** ### Open Issues for Umbrella Corp
+Umbrella Corp currently has **two open issues**:
+1. **ID 8**: *Compliance audit trail missing entries* (High Priority)
+2. **ID 10**: *Request additional user seats* (Low Priority)
 
-**Description:** Umbrella Corp's internal compliance audit found gaps in their platform audit log for March, which is critical ahead of an upcoming regulatory audit.
+---
 
-**History:**
-*   **June 15:** Umbrella Corp reported the missing audit log entries.
-*   **June 18:** Support confirmed that the logging service dropped a subset of audit events on March 18th during a deployment and began recovering 
+### History of the Compliance Audit Trail Issue (ID 8)
+* **Description:** An internal compliance audit at Umbrella Corp flagged missing entries in the platform audit log for March, ahead of an upcoming FDA-adjacent regulatory audit.
+* **Timeline of Updates:**
+  * **June 15, 2026:
 - **⚠ Human review needed (next-action reasonableness is not mechanically scored):** read the response excerpt above and judge whether the recommended action is concrete, specific to the actual issue, and something a real operator could act on immediately.
 
 ### `sales_escalation_skill`
@@ -95,7 +159,7 @@ Their most urgent open issue is a **critical production outage** where the dashb
 - **Request:** `{"customer_name": "Wayne Enterprises"}`
 - **HTTP status:** 200
 - **rbac:** PASS — `{"pass": true, "unexpected_denials": []}`
-- **Response excerpt:** Wayne Enterprises, a Premium account, is currently facing critical operational challenges with two open issues. A recent production outage for their dashboard on June 30th, though mitigated, was the second such incident this quarter, prompting the customer to demand a full Root Cause Analysis (RCA) and preventive measures. Concurrently, a medium-priority API rate-limiting issue causing dropped webhooks has been open for over three weeks, with a proposed solution awaiting engineering sign-off. Th
+- **Response excerpt:** Wayne Enterprises, a Premium technology customer, is experiencing heightened risk due to recurring platform instability and slow resolution times. On June 30, 2026, they suffered a critical SEV1 production outage, and while dashboard access has been restored, the customer has explicitly demanded a formal Root Cause Analysis (RCA) and preventive measures, noting this is their second outage this quarter. Furthermore, a medium-priority API rate-limiting issue has been unresolved for a month, though
 - **⚠ Human review needed (next-action reasonableness is not mechanically scored):** read the response excerpt above and judge whether the recommended action is concrete, specific to the actual issue, and something a real operator could act on immediately.
 
 ### `nonexistent_customer_no_fabrication`
@@ -105,4 +169,4 @@ Their most urgent open issue is a **critical production outage** where the dashb
 - **tool_selection:** PASS — `{"pass": true, "expected": ["get_customer_profile"], "actual": ["get_customer_profile"], "missing": []}`
 - **rbac:** PASS — `{"pass": true, "unexpected_denials": []}`
 - **tool_result:** PASS — `{"pass": true, "expected": {"tool": "get_customer_profile", "key": "not_found", "value": true}, "actual_result": {"not_found": true}}`
-- **Response excerpt:** I can't find a customer named "Nonexistent Corp". Did you spell it correctly?
+- **Response excerpt:** I couldn't find a customer profile for "Nonexistent Corp." It looks like they might not be in our database.

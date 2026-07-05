@@ -9,11 +9,12 @@ a fifth tool tomorrow.
 
 One deliberate exception: a small number of tool parameters exist on the
 real MCP schema but must never be shown to (or filled in by) the model --
-`create_next_action`'s `created_by`, which has to come from the caller's
-verified identity, not from anything the LLM supplies. Those are filtered
-out of what's shown to Gemini and re-injected here before the actual MCP
-call, using the exact same non-forgeable-attribution approach as Step 4,
-just re-implemented across the client/server boundary.
+`create_next_action`'s `created_by` and `update_issue_status`'s
+`updated_by`, both of which have to come from the caller's verified
+identity, not from anything the LLM supplies. Those are filtered out of
+what's shown to Gemini and re-injected here before the actual MCP call,
+using the exact same non-forgeable-attribution approach as Step 4, just
+re-implemented across the client/server boundary.
 """
 
 import json
@@ -27,11 +28,13 @@ MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL", "http://mcp-server:8001/mcp")
 # tool name -> {parameter name the model must never see}
 _HIDDEN_PARAMETERS: dict[str, set[str]] = {
     "create_next_action": {"created_by"},
+    "update_issue_status": {"updated_by"},
 }
 
 # tool name -> {parameter name: field to read off the verified caller dict}
 _INJECTED_PARAMETERS: dict[str, dict[str, str]] = {
     "create_next_action": {"created_by": "preferred_username"},
+    "update_issue_status": {"updated_by": "preferred_username"},
 }
 
 
