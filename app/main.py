@@ -1,23 +1,3 @@
-"""Acme Operations API — FastAPI entrypoint.
-
-`/health` is unauthenticated (it's just the container healthcheck). `/me`
-and `/admin/ping` exist only to prove the Keycloak bearer-token + RBAC flow
-works end-to-end. `/chat` is the open-ended agentic entrypoint: it hands
-the caller's message and verified identity to the agent loop, which
-decides which tool(s) to call (RBAC-enforced per tool call, not just per
-route), and continues a prior conversation via Redis-backed session memory
-(Step 7) when the caller supplies a `conversation_id`.
-`/skills/escalation-summary` is different in kind, not just in name: it's
-a fixed, structured workflow (Step 6) rather than an open-ended
-conversation.
-
-The HTTP middleware below is Step 8's observability requirement: every
-request gets a request ID (propagated via `observability`'s contextvar so
-every log line emitted anywhere during that request -- including tool
-calls logged in agent.py -- carries the same id), plus a structured
-start/end/error log with latency.
-"""
-
 import logging
 import time
 import uuid
@@ -104,14 +84,6 @@ def me(user: dict = Depends(require_role("sales_user", "support_user", "admin"))
     authentication works, not a role-specific capability.
     """
     return {"username": user.get("preferred_username"), "roles": sorted(user["_roles"])}
-
-
-@app.get("/admin/ping")
-def admin_ping(user: dict = Depends(require_role("admin"))) -> dict:
-    """Admin-only route: proves RBAC actually rejects non-admin roles,
-    not just that authentication succeeded.
-    """
-    return {"message": f"pong, admin {user.get('preferred_username')}"}
 
 
 class ChatRequest(BaseModel):

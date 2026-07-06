@@ -9,16 +9,6 @@ one constrained Gemini call, and returns a validated structured result
 information) -- never free text, and never a shape other than the one
 this skill promises its callers.
 
-Why this doesn't rely on Gemini's `response_format.schema` parameter:
-empirically verified against the live API (see TROUBLESHOOTING_LOG.md,
-Step 6) that the Interactions API accepts a `schema` under
-`response_format` without error, but does not actually constrain output to
-it -- a test call returned valid JSON with an entirely different key set
-than the one requested. The reliable alternative, confirmed working, is to
-describe the exact required schema in the system instruction (a
-well-established prompting technique) and independently validate the
-parsed result in this module, retrying once if it doesn't conform, rather
-than trusting an API guarantee that doesn't actually hold.
 """
 
 import asyncio

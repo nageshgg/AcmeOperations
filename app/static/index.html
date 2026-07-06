@@ -170,13 +170,73 @@
   #send-btn:hover:not(:disabled) { opacity: 0.9; }
   #send-btn:active:not(:disabled) { transform: scale(0.97); }
   #send-btn:disabled { opacity: 0.5; cursor: default; }
-  #activity-panel {
+  #side-column {
     flex: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+    max-height: 78vh;
+  }
+  #escalation-panel {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 0.85rem;
-    max-height: 78vh;
+    box-shadow: 0 1px 3px rgba(31, 35, 40, 0.06);
+  }
+  #escalation-panel h2 {
+    font-size: 0.9rem;
+    margin: 0 0 0.6rem 0;
+    color: var(--accent);
+  }
+  #escalation-input-row { display: flex; gap: 0.5rem; }
+  #escalation-customer-input {
+    flex: 1;
+    padding: 0.45rem 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  #escalation-customer-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+  }
+  #escalation-generate-btn {
+    padding: 0.45rem 0.9rem;
+    border: none;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    color: #fff;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+  #escalation-generate-btn:disabled { opacity: 0.5; cursor: default; }
+  #escalation-result { margin-top: 0.7rem; font-size: 0.85rem; line-height: 1.45; }
+  #escalation-result .risk-badge {
+    display: inline-block;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  .risk-low { background: #dafbe1; color: #1a7f37; }
+  .risk-medium { background: #fff8c5; color: #9a6700; }
+  .risk-high { background: #ffeee0; color: #bc4c00; }
+  .risk-critical { background: var(--danger-bg); color: var(--danger); }
+  #escalation-result .field-label { font-weight: 600; margin-top: 0.6rem; }
+  #escalation-result ul { margin: 0.2rem 0 0 0; padding-left: 1.1rem; }
+  #escalation-result .escalation-error { color: var(--danger); }
+  #activity-panel {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.85rem;
     overflow-y: auto;
     box-shadow: 0 1px 3px rgba(31, 35, 40, 0.06);
   }
@@ -221,10 +281,21 @@
     </div>
   </section>
 
-  <section id="activity-panel">
-    <h2 id="activity-toggle">Agent activity &#9660;</h2>
-    <div id="activity-list"></div>
-  </section>
+  <div id="side-column">
+    <section id="escalation-panel">
+      <h2>Escalation summary (SKILL)</h2>
+      <div id="escalation-input-row">
+        <input id="escalation-customer-input" type="text" placeholder="Customer name (e.g. Wayne Enterprises)" disabled>
+        <button id="escalation-generate-btn" disabled>Generate</button>
+      </div>
+      <div id="escalation-result"></div>
+    </section>
+
+    <section id="activity-panel">
+      <h2 id="activity-toggle">Agent activity &#9660;</h2>
+      <div id="activity-list"></div>
+    </section>
+  </div>
 </main>
 
 <script type="module">
@@ -368,6 +439,102 @@ function appendActivity(toolCalls) {
 }
 
 /**
+ * Renders one Escalation Summary Skill result (or its error) into the
+ * #escalation-result container: a color-coded risk badge, the executive
+ * summary, the recommended next action, and any missing-information list
+ * -- the same 4 fixed fields generate_escalation_summary() always returns.
+ */
+function renderEscalationResult(data) {
+  const container = document.getElementById("escalation-result");
+  container.innerHTML = "";
+
+  if (data.error) {
+    const err = document.createElement("div");
+    err.className = "escalation-error";
+    err.textContent = data.error;
+    container.appendChild(err);
+    return;
+  }
+
+  const badge = document.createElement("span");
+  badge.className = "risk-badge risk-" + String(data.risk_level || "").toLowerCase();
+  badge.textContent = (data.risk_level || "Unknown") + " risk";
+  container.appendChild(badge);
+
+  const header = document.createElement("div");
+  header.className = "field-label";
+  const issueCount = data.open_issue_count;
+  header.textContent = data.customer_name + " (" + issueCount + " open issue" + (issueCount === 1 ? "" : "s") + ")";
+  container.appendChild(header);
+
+  const summary = document.createElement("div");
+  summary.textContent = data.executive_summary;
+  container.appendChild(summary);
+
+  const actionLabel = document.createElement("div");
+  actionLabel.className = "field-label";
+  actionLabel.textContent = "Recommended next action";
+  container.appendChild(actionLabel);
+
+  const action = document.createElement("div");
+  action.textContent = data.recommended_next_action;
+  container.appendChild(action);
+
+  if (data.missing_information && data.missing_information.length) {
+    const missingLabel = document.createElement("div");
+    missingLabel.className = "field-label";
+    missingLabel.textContent = "Missing information";
+    container.appendChild(missingLabel);
+
+    const ul = document.createElement("ul");
+    data.missing_information.forEach((item) => {
+      const li = document.createElement("li");
+      li.textContent = item;
+      ul.appendChild(li);
+    });
+    container.appendChild(ul);
+  }
+}
+
+/**
+ * Sends the customer name in #escalation-customer-input to
+ * POST /skills/escalation-summary and renders the structured result.
+ * Unlike sendMessage(), there's no conversation/tool-call trace here --
+ * this Skill is a single fixed request/response, not a multi-turn chat.
+ */
+async function generateEscalationSummary() {
+  const input = document.getElementById("escalation-customer-input");
+  const name = input.value.trim();
+  if (!name) return;
+
+  const btn = document.getElementById("escalation-generate-btn");
+  const result = document.getElementById("escalation-result");
+  btn.disabled = true;
+  input.disabled = true;
+  result.innerHTML = '<div class="msg agent loading"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>';
+
+  await ensureFreshToken();
+
+  try {
+    const res = await fetch("/skills/escalation-summary", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + keycloak.token,
+      },
+      body: JSON.stringify({ customer_name: name }),
+    });
+    const data = await res.json();
+    renderEscalationResult(data);
+  } catch (err) {
+    renderEscalationResult({ error: "Something went wrong: " + err.message });
+  } finally {
+    btn.disabled = false;
+    input.disabled = false;
+  }
+}
+
+/**
  * Sends the current input box's text to POST /chat with a bearer token,
  * renders the agent's reply (or a clear denial message on 403), and
  * updates the Agent activity panel from the response's tool_calls trace.
@@ -439,9 +606,15 @@ function wireUpControls() {
   });
   document.getElementById("logout-btn").addEventListener("click", () => keycloak.logout());
   document.getElementById("activity-toggle").addEventListener("click", toggleActivityPanel);
+  document.getElementById("escalation-generate-btn").addEventListener("click", generateEscalationSummary);
+  document.getElementById("escalation-customer-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") generateEscalationSummary();
+  });
 
   document.getElementById("message-input").disabled = false;
   document.getElementById("send-btn").disabled = false;
+  document.getElementById("escalation-customer-input").disabled = false;
+  document.getElementById("escalation-generate-btn").disabled = false;
   document.getElementById("message-input").focus();
 }
 

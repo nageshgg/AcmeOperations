@@ -1,18 +1,4 @@
-"""JWT bearer-token validation against Keycloak, and RBAC dependencies.
-
-Why this exists: the assessment brief requires a working bearer-token
-validation flow backed by a real Keycloak instance (mocked auth is
-explicitly not accepted), plus role-based access control with exactly
-three roles (sales_user, support_user, admin). This module is the one
-place that talks to Keycloak's JWKS endpoint and decides whether a request
-is authenticated and which role(s) it holds; every protected route here,
-and every tool call from Step 4 onward, goes through `require_role(...)`.
-
-Issuer note: KEYCLOAK_INTERNAL_URL (docker-network address, used to reach
-Keycloak's JWKS endpoint) and KEYCLOAK_ISSUER (fixed external URL, matched
-against the token's `iss` claim) are deliberately different values. See
-docker-compose.yml's `KC_HOSTNAME` setting and .env.example for why.
-"""
+"""JWT bearer-token validation against Keycloak, and RBAC dependencies."""
 
 import os
 from functools import lru_cache

@@ -21,20 +21,6 @@ import mcp_client
 import observability
 import rbac_policy
 
-# `google.genai.errors.APIError` looked like the right exception to catch
-# around client.interactions.create(...), but empirically it is NOT what
-# gets raised: the Interactions API surface raises
-# `google.genai._gaos.lib.compat_errors.RateLimitError` (confirmed via
-# `issubclass(..., genai_errors.APIError)` -> False -- a completely
-# separate internal exception hierarchy from the older generate_content
-# surface's public errors module). Catching the public class silently let
-# real rate-limit failures crash the request with a bare 500 (see
-# TROUBLESHOOTING_LOG.md, Step 8). A broad `Exception` catch around this
-# specific, narrow external-API boundary is the correct fix here, not a
-# shortcut: this SDK's own documented public error type does not reliably
-# describe what it actually raises, so a narrower catch would be a false
-# guarantee, not a more precise one.
-
 _client: genai.Client | None = None
 
 
