@@ -1,18 +1,4 @@
-"""Redis-backed conversation continuity for the Gemini agent loop.
-
-Why Redis and not Postgres: this data is a cache of "which Gemini
-interaction to continue a conversation from," not durable business data.
-It has a natural expiry (a conversation gone quiet doesn't need
-remembering forever), no relational structure worth modeling, and is
-read/written on nearly every `/chat` request, where Redis's in-memory
-speed and native per-key TTL matter more than Postgres's durability and
-transactional guarantees. See the README's Redis-vs-Postgres note for the
-fuller trade-off; the short version: Postgres is the source of truth for
-customers/issues/next_actions, which must never silently disappear;
-Redis is scratch space for keeping a conversation's thread alive, which is
-fine to lose (worst case, the next message just starts a fresh
-conversation under the same id).
-"""
+"""Redis-backed conversation continuity for the Gemini agent loop."""
 
 import os
 

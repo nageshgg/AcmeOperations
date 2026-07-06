@@ -1,12 +1,5 @@
 """Acme MCP server -- exposes the five Acme-specific tools over MCP.
 
-This is the "custom MCP server exposing the Acme-specific tools, running as
-its own container" required by the brief. It knows nothing about Keycloak,
-roles, or the agent's reasoning loop -- it only knows how to answer
-"here are my tools" and "run this tool with these arguments." That
-separation (tool definitions/execution here; agent reasoning + RBAC in the
-`app` container) is what the README's MCP section explains.
-
 Runs over the `streamable-http` transport so it's reachable from the `app`
 container over the docker network, at http://mcp-server:8001/mcp.
 """

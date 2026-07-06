@@ -1,21 +1,4 @@
-"""MCP client: how the agent discovers and calls tools served by mcp-server.
-
-This module has no idea what the tools *do*, and no idea about RBAC -- it
-only speaks the MCP protocol. Tool schemas are discovered from the MCP
-server at runtime via `list_tools()` rather than hardcoded here, which is
-what "clearly separates tool definitions from core agent logic" means in
-practice: this file (and agent.py) would be unchanged if mcp_server/ added
-a fifth tool tomorrow.
-
-One deliberate exception: a small number of tool parameters exist on the
-real MCP schema but must never be shown to (or filled in by) the model --
-`create_next_action`'s `created_by` and `update_issue_status`'s
-`updated_by`, both of which have to come from the caller's verified
-identity, not from anything the LLM supplies. Those are filtered out of
-what's shown to Gemini and re-injected here before the actual MCP call,
-using the exact same non-forgeable-attribution approach as Step 4, just
-re-implemented across the client/server boundary.
-"""
+"""MCP client: how the agent discovers and calls tools served by mcp-server."""
 
 import json
 import os

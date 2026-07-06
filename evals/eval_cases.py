@@ -6,18 +6,6 @@ four required measurement dimensions:
   (b) responses grounded in database results
   (c) role-based access control respected
   (d) reasonableness of recommended next actions
-
-Grounding checks are lightweight, deterministic keyword checks against the
-actual reply text -- not a second LLM-as-judge call, which would add cost
-and its own reliability question for a take-home eval script. Keywords are
-picked from the *actual* seed data (db/init/002_seed_data.sql) so a truly
-grounded answer will very likely include them, and a fabricated one very
-likely won't. "Reasonableness of next actions" (dimension d) is inherently
-more subjective than the other three, so it's flagged for human judgment
-in the results output rather than force-fit into a keyword check --
-run_evals.py records the actual recommendation text so a reviewer can
-assess it directly, rather than pretending a keyword match settles a
-judgment call it can't actually settle.
 """
 
 EVAL_CASES: list[dict] = [

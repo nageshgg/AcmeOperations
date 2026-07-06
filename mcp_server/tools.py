@@ -1,13 +1,4 @@
-"""The four Acme-specific tool implementations, exposed over MCP by server.py.
-
-This module owns tool *logic* only (querying Postgres). It has no concept
-of Keycloak roles or RBAC -- that's a deliberate boundary: authorization
-decisions depend on the caller's verified identity, which only exists in
-the `app` container (where the bearer token was validated), so RBAC is
-enforced there, one layer above the MCP protocol boundary, before a tool
-call ever reaches this container. This module trusts whatever it's asked
-to run.
-"""
+"""The Acme-specific tool implementations, exposed over MCP by server.py."""
 
 from datetime import date, datetime
 from decimal import Decimal

@@ -1,15 +1,3 @@
-"""Which Keycloak roles may call which MCP tool.
-
-This is deliberately the *only* thing this module knows. Tool definitions
-and execution now live entirely in mcp_server/ (Step 5) -- this module
-holds the authorization policy, which has to live here instead, because
-enforcing it requires the caller's verified Keycloak identity, and that
-identity only exists in this (`app`) container, where the bearer token was
-validated. Neither side could enforce RBAC alone: the MCP server has no
-idea who's calling it, and the agent loop has no idea what a tool does --
-each container only knows the part of the picture it needs to.
-"""
-
 # sales_user: read-only -- can look up customers/issues/history but change
 # nothing.
 # support_user: read-only tools plus update_issue_status -- can update an

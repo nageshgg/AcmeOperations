@@ -1,11 +1,6 @@
-"""Lightweight PostgreSQL connection helper.
+"""Lightweight PostgreSQL connection helper. -- server side in real world
 
-This is the MCP server's own DB connection -- deliberately separate from
-`app/db.py` even though the code is near-identical, because the MCP server
-runs as its own container (per the brief's requirement) and must not depend
-on the `app` container's internals. A shared library would be a reasonable
-refactor at larger scale, but for two small, near-static helper modules the
-duplication is cheaper than the coupling it would avoid.
+This is the MCP server's own DB connection
 """
 
 import os
