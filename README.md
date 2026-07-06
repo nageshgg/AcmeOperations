@@ -383,19 +383,29 @@ lookup). Both are reasonable agent behaviors, not defects — but worth
 being explicit that a single passing eval run is not a claim of full
 determinism.
 
-## Proposed bonus (not built — for approval)
+## Bonus: LangSmith tracing (built, opt-in)
 
-All required work above is complete and verified. Per the brief, this is
-only a proposal, not something built: adding a tracing backend
-(OpenTelemetry, LangSmith, or Arize Phoenix) on top of the existing
-structured-JSON-with-request-ID logging would give a visual timeline of a
-single `/chat` request — the Gemini call(s), each MCP tool call, and their
-latencies, as spans in one trace — instead of reconstructing that sequence
-by grepping `request_id` across log lines by hand. Given this project
-already threads a request ID through every log line, wiring OpenTelemetry
-in would mostly mean wrapping the existing `observability.log_event` call
-sites in spans rather than a redesign. Happy to build this if useful —
-holding off until it's explicitly requested.
+On top of the required structured-JSON-with-request-ID logging, both
+`/chat` (`app/agent.py`) and `/skills/escalation-summary`
+(`app/skills/escalation_summary.py`) are instrumented with LangSmith's
+`@traceable` decorator — every Gemini call (`run_type="llm"`) and every
+MCP tool call (`run_type="tool"`) is a nested span under its request's
+top-level chain (`run_agent` / `generate_escalation_summary`), giving a
+visual timeline of one request in LangSmith's UI instead of reconstructing
+it by grepping `request_id` across log lines by hand.
+
+**This is entirely opt-in and off by default** — `LANGSMITH_TRACING=false`
+in `.env`/`.env.example` means the app behaves identically to before;
+`@traceable` becomes a no-op wrapper when tracing is disabled, so no
+LangSmith account is required to run this project. To turn it on: get a
+free API key at https://smith.langchain.com, then set
+`LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY=...` in `.env` and rebuild
+the `app` container.
+
+OpenTelemetry and Arize Phoenix remain proposals, not built — LangSmith
+was chosen as the one bonus to actually implement since its `@traceable`
+decorator required no code restructuring, only additive wrapper functions
+around existing call sites.
 
 ## AI tool usage
 

@@ -16,6 +16,7 @@ import os
 import time
 
 from google import genai
+from langsmith import traceable
 
 import mcp_client
 import observability
@@ -46,6 +47,19 @@ SYSTEM_INSTRUCTION = (
 MAX_TOOL_ITERATIONS = 8
 
 
+@traceable(name="gemini_interactions_create", run_type="llm")
+async def _create_interaction(**kwargs) -> object:
+    """Thin traced wrapper around the blocking Gemini call -- gives each
+    Gemini round trip its own span (with @traceable's automatic latency
+    capture) nested under whichever function called it, instead of that
+    time being invisible inside the parent span. No-op if LangSmith
+    tracing isn't enabled (LANGSMITH_TRACING unset/false); the call
+    itself is unaffected either way.
+    """
+    return await asyncio.to_thread(_get_client().interactions.create, **kwargs)
+
+
+@traceable(name="execute_tool", run_type="tool")
 async def _execute_tool(tool_name: str, arguments: dict, caller: dict) -> tuple[dict, float]:
     """RBAC-gated tool dispatch -- the single point every tool call passes
     through. The model only ever sees the result of this function; it has
@@ -86,6 +100,7 @@ async def _execute_tool(tool_name: str, arguments: dict, caller: dict) -> tuple[
     return result, duration_ms
 
 
+@traceable(name="run_agent", run_type="chain")
 async def run_agent(
     user_message: str, caller: dict, previous_interaction_id: str | None = None
 ) -> dict:
@@ -100,23 +115,14 @@ async def run_agent(
     Pass `None` (the default) to start a fresh conversation; `main.py`
     supplies this from `session_store` (Redis) keyed by the caller's
     conversation_id.
-
-    If the Gemini API itself fails partway through (rate limit, transient
-    5xx, etc.), this degrades gracefully rather than raising: any tool
-    calls already made (and any writes they performed, e.g. a next_action
-    already inserted) are real and already happened, so the response
-    surfaces them plus a clear error message instead of a bare 500 that
-    hides that a database write may have already succeeded.
     """
-    client = _get_client()
     model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
     tool_declarations = await mcp_client.get_tool_declarations()
 
     run_start = time.monotonic()
     tool_call_log: list[dict] = []
     try:
-        interaction = await asyncio.to_thread(
-            client.interactions.create,
+        interaction = await _create_interaction(
             model=model,
             input=user_message,
             tools=tool_declarations,
@@ -149,8 +155,7 @@ async def run_agent(
                     }
                 )
 
-            interaction = await asyncio.to_thread(
-                client.interactions.create,
+            interaction = await _create_interaction(
                 model=model,
                 input=result_steps,
                 tools=tool_declarations,

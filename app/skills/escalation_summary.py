@@ -16,6 +16,7 @@ import json
 import os
 
 from google import genai
+from langsmith import traceable
 
 import mcp_client
 
@@ -62,6 +63,17 @@ SYSTEM_INSTRUCTION = (
 )
 
 
+@traceable(name="mcp_call_tool", run_type="tool")
+async def _call_tool(tool_name: str, arguments: dict, caller: dict) -> dict:
+    """Traced wrapper around mcp_client.call_tool so each of this Skill's
+    tool calls gets its own LangSmith span nested under
+    generate_escalation_summary, mirroring agent.py's _execute_tool --
+    minus the RBAC gate, since this Skill only ever calls the 3 read-only
+    tools every role may already use, so there's nothing to gate here.
+    """
+    return await mcp_client.call_tool(tool_name, arguments, caller)
+
+
 def _validate(parsed: object) -> list[str]:
     """Returns a list of validation problems (empty if `parsed` conforms).
     Kept separate from the calling code so the retry loop below can call it
@@ -82,12 +94,21 @@ def _validate(parsed: object) -> list[str]:
     return problems
 
 
+@traceable(name="gemini_interactions_create", run_type="llm")
+async def _create_interaction(**kwargs) -> object:
+    """Thin traced wrapper around the blocking Gemini call -- gives each
+    Gemini round trip its own LangSmith span, same pattern as
+    agent.py's _create_interaction.
+    """
+    return await asyncio.to_thread(_get_client().interactions.create, **kwargs)
+
+
+@traceable(name="generate", run_type="chain")
 async def _generate(prompt: str) -> dict:
     """One constrained Gemini call, with a single corrective retry if the
     output doesn't validate -- rather than silently returning (or crashing
     on) a malformed result.
     """
-    client = _get_client()
     model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
     last_error = "no attempt made"
@@ -99,8 +120,7 @@ async def _generate(prompt: str) -> dict:
                 f"format ({last_error}). Respond again with ONLY the "
                 f"corrected JSON object."
             )
-        interaction = await asyncio.to_thread(
-            client.interactions.create,
+        interaction = await _create_interaction(
             model=model,
             system_instruction=SYSTEM_INSTRUCTION,
             input=input_text,
@@ -134,6 +154,7 @@ async def _generate(prompt: str) -> dict:
     )
 
 
+@traceable(name="generate_escalation_summary", run_type="chain")
 async def generate_escalation_summary(customer_name: str, caller: dict) -> dict:
     """Runs the Customer Escalation Summary Skill for a given customer.
 
@@ -145,7 +166,7 @@ async def generate_escalation_summary(customer_name: str, caller: dict) -> dict:
     which is what makes it a repeatable workflow rather than a one-off
     prompt.
     """
-    profile = await mcp_client.call_tool(
+    profile = await _call_tool(
         "get_customer_profile", {"customer_name": customer_name}, caller
     )
     if profile.get("not_found"):
@@ -160,7 +181,7 @@ async def generate_escalation_summary(customer_name: str, caller: dict) -> dict:
     if "error" in profile:
         return profile
 
-    open_issues_result = await mcp_client.call_tool(
+    open_issues_result = await _call_tool(
         "get_open_issues_for_customer", {"customer_name": customer_name}, caller
     )
     if "error" in open_issues_result:
@@ -168,7 +189,7 @@ async def generate_escalation_summary(customer_name: str, caller: dict) -> dict:
 
     issues = open_issues_result.get("issues", [])
     histories = [
-        await mcp_client.call_tool("summarize_issue_history", {"issue_id": issue["id"]}, caller)
+        await _call_tool("summarize_issue_history", {"issue_id": issue["id"]}, caller)
         for issue in issues
     ]
 
