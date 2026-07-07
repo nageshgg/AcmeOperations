@@ -128,3 +128,7 @@ Full, per-checkpoint detail is in two companion files in this repository:
 | Observability: tool logs, traces, error logs, latency | `app/observability.py` — structured JSON + request ID; LangSmith tracing as opt-in bonus |
 | Simple UI or API | Both: web UI at `http://localhost:8000` and the `/chat` API |
 | README, architecture diagram, trade-offs, AI usage notes | This file + `AI_USAGE_NOTES.md` + `TROUBLESHOOTING_LOG.md` |
+
+## 7. Eval results
+
+Output from the most recent run of the eval set, with commentary, is in **[`evals/results.md`](./evals/results.md)** (summary table + full per-case detail; machine-readable version in `evals/results.json`). See [Setup](#1-setup) for how to regenerate it.
