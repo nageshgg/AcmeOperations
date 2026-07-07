@@ -16,6 +16,7 @@ env/
 .ruff_cache/
 .coverage
 htmlcov/
+TROUBLESHOOTING_LOG.md
 
 # Docker / Keycloak runtime data
 db/data/
