@@ -1,34 +1,5 @@
 #!/usr/bin/env python3
-"""Eval runner for Acme Operations' agent.
-
-Runs every case in eval_cases.py against a *live* stack (the same
-docker-compose services a real user would hit -- this is not a mocked or
-unit-level test), scores each of the four required dimensions where they
-apply, and writes both a machine-readable JSON result and a human-readable
-Markdown report.
-
-Usage:
-    docker compose up -d --build     # stack must already be running
-    python3 evals/run_evals.py
-
-Only the standard library is used (urllib, json) so this runs with a bare
-`python3` on the host -- no pip install required to reproduce the eval.
-
-Dimensions scored:
-  (a) tool_selection    -- mechanical: were the expected tool(s) actually
-                           called? (checked against the real tool_calls
-                           trace the API returns, not inferred from reply text)
-  (b) grounding          -- mechanical: do known facts from the seed data
-                           appear in the reply? A keyword check, not a
-                           second LLM-judge call (see eval_cases.py for why)
-  (c) rbac               -- mechanical: for a write attempted by a role
-                           that shouldn't be allowed, was it actually
-                           denied server-side (not just omitted)?
-  (d) next_action_reasonableness -- NOT mechanically scored. The actual
-                           recommendation text is captured in the report
-                           for a human reviewer to judge; a keyword match
-                           can't responsibly stand in for that judgment.
-"""
+"""Eval runner for Acme Operations' agent."""
 
 import json
 import time
